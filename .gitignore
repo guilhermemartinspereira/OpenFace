@@ -53,4 +53,5 @@ matlab_version/face_validation/vlfeat-0.9.20/
 matlab_version/face_validation/trained/intermediate/
 
 #Guilherme
-.vis/
+.vs/
+OpenFace.VC*

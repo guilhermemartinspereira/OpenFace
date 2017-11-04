@@ -143,6 +143,36 @@ void output_HOG_frame(std::ofstream* hog_file, bool good_frame, const cv::Mat_<d
 double fps_tracker = -1.0;
 int64 t0 = 0;
 
+//================== Guilherme ==================
+#define TO_DEG(x) x * 180 / 3.141592
+#define TO_RAD(x) x * 3.141592 / 180
+//------ GLOBALS ------
+// YPR angles in rad
+float yaw = 0;
+float pitch = 0;
+float roll = 0;
+// Shift YPR angles to calculate the corrected YPR 
+float shiftYaw = 0;
+float shiftPitch = 0;
+float shiftRoll = 0;
+// Corrected YPR angles in rad
+float cYaw = 0;
+float cPitch = 0;
+float cRoll = 0;
+// Indicate if the YPR angles are corrected or not
+bool zeroRefYPRSet = false;
+
+//------ FUNCTIONS ------
+// Update the YPR angles in radians
+void updateYPR(cv::Vec6d pose);
+// Set zero ref for YPR angles
+void setZeroRefYPR();
+// Update corrected YPR
+void updateCorrYPR();
+// Visualise YPR and corrected YPR in real-time (in degrees)
+void visualisePoseAngles(cv::Mat& captured_image, const LandmarkDetector::FaceModelParameters& det_parameters);
+//==============================================
+
 // Visualising the results
 void visualise_tracking(cv::Mat& captured_image, const LandmarkDetector::CLNF& face_model, const LandmarkDetector::FaceModelParameters& det_parameters, cv::Point3f gazeDirection0, cv::Point3f gazeDirection1, int frame_count, double fx, double fy, double cx, double cy)
 {
@@ -170,7 +200,7 @@ void visualise_tracking(cv::Mat& captured_image, const LandmarkDetector::CLNF& f
 		int thickness = (int)std::ceil(2.0* ((double)captured_image.cols) / 640.0);
 
 		cv::Vec6d pose_estimate_to_draw = LandmarkDetector::GetPose(face_model, fx, fy, cx, cy);
-
+		
 		// Draw it in reddish if uncertain, blueish if certain
 		LandmarkDetector::DrawBox(captured_image, pose_estimate_to_draw, cv::Scalar((1 - vis_certainty)*255.0, 0, vis_certainty * 255), thickness, fx, fy, cx, cy);
 
@@ -194,7 +224,7 @@ void visualise_tracking(cv::Mat& captured_image, const LandmarkDetector::CLNF& f
 	string fpsSt("FPS:");
 	fpsSt += fpsC;
 	cv::putText(captured_image, fpsSt, cv::Point(10, 20), CV_FONT_HERSHEY_SIMPLEX, 0.5, CV_RGB(255, 0, 0), 1, CV_AA);
-
+	
 	if (!det_parameters.quiet_mode)
 	{
 		cv::namedWindow("tracking_result", 1);
@@ -339,6 +369,19 @@ int main (int argc, char **argv)
 					fps_vid_in = 30;
 				}
 			}
+			//================== Guilherme ==================
+			/* Modification to use the camera in real-time to make AUs predictions. This part of code has been copied from
+			FaceLandmarkVisMulti.cpp. In https://github.com/TadasBaltrusaitis/OpenFace/issues/4 the main author discuss
+			about the necessary modifications to get it done.*/ 
+			else {
+				INFO_STREAM("Attempting to capture from device: " << d);
+				video_capture = cv::VideoCapture(d);
+
+				// Read a first frame often empty in camera
+				cv::Mat captured_image;
+				video_capture >> captured_image;
+			}
+			//==============================================
 
 			if (!video_capture.isOpened())
 			{
@@ -547,10 +590,21 @@ int main (int argc, char **argv)
 				}
 			}
 
+			//================== Guilherme ==================
+			// Update YPR angles
+			updateYPR(pose_estimate);
+			// Update corrected YPR angles if zero reference has been set
+			if (zeroRefYPRSet) {	
+				updateCorrYPR();
+			}
+			//printf("YPR %.2f %.2f %.2f  cYPR %.2f %.2f %.2f\n", TO_DEG(yaw), TO_DEG(pitch), TO_DEG(roll), TO_DEG(cYaw), TO_DEG(cPitch), TO_DEG(cRoll));
+			//===============================================
+
 			// Visualising the tracker
 			if(visualize_track && !det_parameters.quiet_mode)
 			{
 				visualise_tracking(captured_image, face_model, det_parameters, gazeDirection0, gazeDirection1, frame_count, fx, fy, cx, cy);
+				visualisePoseAngles(captured_image, det_parameters);	// Guilherme
 			}
 
 			// Output the landmarks, pose, gaze, parameters and AUs
@@ -591,6 +645,11 @@ int main (int argc, char **argv)
 				if(character_press == 'r')
 				{
 					face_model.Reset();
+				}
+				// Set zero ref for YPR angles (Guilherme)
+				if (character_press == 's') {
+					setZeroRefYPR();
+					INFO_STREAM("YPR zero reference has been set...");
 				}
 				// quit the application
 				else if(character_press=='q')
@@ -641,6 +700,7 @@ int main (int argc, char **argv)
 
 	return 0;
 }
+
 
 void prepareOutputFile(std::ofstream* output_file, bool output_2D_landmarks, bool output_3D_landmarks,
 	bool output_model_params, bool output_pose, bool output_AUs, bool output_gaze,
@@ -724,6 +784,56 @@ void prepareOutputFile(std::ofstream* output_file, bool output_2D_landmarks, boo
 	*output_file << endl;
 
 }
+
+//================== Guilherme ==================
+// FUNCTIONS
+
+// Update the YPR angles in radians
+void updateYPR(cv::Vec6d pose) {
+	yaw = -pose[4];
+	pitch= pose[3];
+	roll = pose[5];	
+}
+
+// Set zero ref for YPR angles
+void setZeroRefYPR() {
+	shiftYaw = yaw;
+	shiftPitch = pitch;
+	shiftRoll = roll;
+	zeroRefYPRSet = true;
+}
+
+// Update corrected YPR
+void updateCorrYPR() {
+	cYaw = yaw - shiftYaw;
+	cPitch = pitch - shiftPitch;
+	cRoll = roll - shiftRoll;
+}
+
+// Visualise YPR and corrected YPR in real-time (in degrees)
+void visualisePoseAngles(cv::Mat& captured_image, const LandmarkDetector::FaceModelParameters& det_parameters) {
+	char ypr_char[255];
+	char cypr_char[255];
+	// Construct YPR string
+	std::sprintf(ypr_char, "%.2f %.2f %.2f", TO_DEG(yaw), TO_DEG(pitch), TO_DEG(roll));
+	string ypr_st("YPR: ");
+	ypr_st += ypr_char;
+	// Write YPR angles on the upper-left corner of the image 
+	cv::putText(captured_image, ypr_st, cv::Point(10, 40), CV_FONT_HERSHEY_SIMPLEX, 0.5, CV_RGB(0, 0, 0), 1, CV_AA);
+	// Construct cYPR string
+	std::sprintf(cypr_char, "%.2f %.2f %.2f", TO_DEG(cYaw), TO_DEG(cPitch), TO_DEG(cRoll));
+	string cypr_st("cYPR: ");
+	cypr_st += cypr_char;
+	// Write corrected YPR angles on the upper-left corner of the image 
+	cv::putText(captured_image, cypr_st, cv::Point(10, 60), CV_FONT_HERSHEY_SIMPLEX, 0.5, CV_RGB(0, 0, 0), 1, CV_AA);
+	//std::cout << ypr_st << "  " << cypr_st << endl;
+
+	// Display the image with YPR and corrected YPR
+	if (!det_parameters.quiet_mode) {
+		cv::imshow("tracking_result", captured_image);	// This window has been created in visualise_tracking function
+	}
+}
+//==============================================
 
 // Output all of the information into one file in one go (quite a few parameters, but simplifies the flow)
 void outputAllFeatures(std::ofstream* output_file, bool output_2D_landmarks, bool output_3D_landmarks,
