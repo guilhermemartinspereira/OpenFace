@@ -161,6 +161,11 @@ float cPitch = 0;
 float cRoll = 0;
 // Indicate if the YPR angles are corrected or not
 bool zeroRefYPRSet = false;
+// Action Units (AUs)
+std::vector<std::string> ausNames;		// Vector ordered by the names of the 18 action units
+std::vector<double> ausClass;			// Ordered vector indicating the presence of each action unit
+std::vector<double> ausRegRaw;			// Ordered vector with the raw intensity of each action unit
+std::vector<double> ausRegMA;			// Ordered vector with the moving average (MA) of each action unit 				
 
 //------ FUNCTIONS ------
 // Update the YPR angles in radians
@@ -171,7 +176,12 @@ void setZeroRefYPR();
 void updateCorrYPR();
 // Visualise YPR and corrected YPR in real-time (in degrees)
 void visualisePoseAngles(cv::Mat& captured_image, const LandmarkDetector::FaceModelParameters& det_parameters);
-//==============================================
+// Get ordered vector the name of the 18 AUs
+std::vector<std::string> getOrderedAUsNames(const FaceAnalysis::FaceAnalyser& face_analyser);
+// Get ordered vector with raw intensities (flag = 1) or presence values (flag = 0) for the AUs
+std::vector<double> getRawAUs(const FaceAnalysis::FaceAnalyser& face_analyser, int flag = 1);
+//===============================================
+
 
 // Visualising the results
 void visualise_tracking(cv::Mat& captured_image, const LandmarkDetector::CLNF& face_model, const LandmarkDetector::FaceModelParameters& det_parameters, cv::Point3f gazeDirection0, cv::Point3f gazeDirection1, int frame_count, double fx, double fy, double cx, double cy)
@@ -328,6 +338,9 @@ int main (int argc, char **argv)
 	FaceAnalysis::FaceAnalyserParameters face_analysis_params(arguments);
 	FaceAnalysis::FaceAnalyser face_analyser(face_analysis_params);
 
+	// Construct the vector with the ordered AUs names
+	ausNames = getOrderedAUsNames(face_analyser);
+	
 	while(!done) // this is not a for loop as we might also be reading from a webcam
 	{
 		
@@ -538,8 +551,11 @@ int main (int argc, char **argv)
 			// But only if needed in output
 			if(!output_similarity_align.empty() || hog_output_file.is_open() || output_AUs)
 			{
-				face_analyser.AddNextFrame(captured_image, face_model.detected_landmarks, face_model.detection_success, time_stamp, false, !det_parameters.quiet_mode && visualize_hog);
+				// Online = true (Guilherme)
+				face_analyser.AddNextFrame(captured_image, face_model.detected_landmarks, face_model.detection_success, time_stamp, true, !det_parameters.quiet_mode && visualize_hog);
+				//face_analyser.AddNextFrame(captured_image, face_model.detected_landmarks, face_model.detection_success, time_stamp, false, !det_parameters.quiet_mode && visualize_hog);
 				face_analyser.GetLatestAlignedFace(sim_warped_img);
+				auto a = face_analyser.GetCurrentAUsClass();
 
 				if(!det_parameters.quiet_mode && visualize_align)
 				{
@@ -597,6 +613,9 @@ int main (int argc, char **argv)
 			if (zeroRefYPRSet) {	
 				updateCorrYPR();
 			}
+			// Get ordered AUs values (presence and intensity)
+			ausClass = getRawAUs(face_analyser, 0); 
+			ausRegRaw = getRawAUs(face_analyser);			
 			//printf("YPR %.2f %.2f %.2f  cYPR %.2f %.2f %.2f\n", TO_DEG(yaw), TO_DEG(pitch), TO_DEG(roll), TO_DEG(cYaw), TO_DEG(cPitch), TO_DEG(cRoll));
 			//===============================================
 
@@ -832,6 +851,49 @@ void visualisePoseAngles(cv::Mat& captured_image, const LandmarkDetector::FaceMo
 	if (!det_parameters.quiet_mode) {
 		cv::imshow("tracking_result", captured_image);	// This window has been created in visualise_tracking function
 	}
+}
+
+// Get ordered vector the name of the 18 AUs
+std::vector<std::string> getOrderedAUsNames(const FaceAnalysis::FaceAnalyser& face_analyser) {
+	std::vector<std::string> ausNames = face_analyser.GetAUClassNames();
+	std::sort(ausNames.begin(), ausNames.end());
+	return ausNames;
+}
+
+// Get ordered vector with raw intensities (flag = 1) or presence values (flag = 0) for the AUs
+std::vector<double> getRawAUs(const FaceAnalysis::FaceAnalyser& face_analyser, int flag) {
+	std::vector<double> rawAUs;
+	// Construct ordered vector for the AUs intensities
+	if (flag == 1) {
+		auto ausReg = face_analyser.GetCurrentAUsReg();
+		for (auto auName: ausNames) {
+			if (auName.compare("AU28") == 0) {
+				rawAUs.push_back(9.99);			// 9.99 means nonexistent value for AU28 intensity
+			}
+			else {
+				for (int i = 0; i < ausReg.size(); i++) {
+					if (auName.compare(ausReg[i].first) == 0) {
+						rawAUs.push_back(ausReg[i].second);
+					}
+				}
+			}
+		}
+	}
+	// Construct ordered vector for the AUs presence
+	else if (flag == 0) {
+		auto ausClass = face_analyser.GetCurrentAUsClass();
+		for (auto auName: ausNames) {
+			for (int i = 0; i < ausClass.size(); i++) {
+				if (auName.compare(ausClass[i].first) == 0) {
+					rawAUs.push_back(ausClass[i].second);
+				}
+			}
+		}
+	}
+	else {
+		INFO_STREAM("Wrong parameter for flag. Pass 1 for raw intensity values or 0 for presence values...");
+	}
+	return rawAUs;
 }
 //==============================================
 
