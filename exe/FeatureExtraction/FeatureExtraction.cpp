@@ -146,6 +146,8 @@ int64 t0 = 0;
 //================== Guilherme ==================
 #define TO_DEG(x) x * 180 / 3.141592
 #define TO_RAD(x) x * 3.141592 / 180
+#define SIZE_MA 5						// Size of the moving average
+#define SIZE_AUS 18						// Number of AUs
 //------ GLOBALS ------
 // YPR angles in rad
 float yaw = 0;
@@ -163,9 +165,11 @@ float cRoll = 0;
 bool zeroRefYPRSet = false;
 // Action Units (AUs)
 std::vector<std::string> ausNames;		// Vector ordered by the names of the 18 action units
-std::vector<double> ausClass;			// Ordered vector indicating the presence of each action unit
-std::vector<double> ausRegRaw;			// Ordered vector with the raw intensity of each action unit
-std::vector<double> ausRegMA;			// Ordered vector with the moving average (MA) of each action unit 				
+std::vector<double> ausClass;			// Ordered vector indicating the presence of each action unit (0 or 1)
+std::vector<double> ausRegRaw;			// Ordered vector with the raw intensity of each action unit (1 to 5 scale)
+std::vector<double> ausRegMA(SIZE_AUS);	// Ordered vector with the moving average (MA) of each action unit 
+std::vector<std::vector<double>> ausRegRawMatrix(SIZE_AUS, std::vector<double>(SIZE_MA));	// Matrix to store the data for moving average
+std::vector<int> v = {1, 2, 3, 4, 5};
 
 //------ FUNCTIONS ------
 // Update the YPR angles in radians
@@ -180,6 +184,12 @@ void visualisePoseAngles(cv::Mat& captured_image, const LandmarkDetector::FaceMo
 std::vector<std::string> getOrderedAUsNames(const FaceAnalysis::FaceAnalyser& face_analyser);
 // Get ordered vector with raw intensities (flag = 1) or presence values (flag = 0) for the AUs
 std::vector<double> getRawAUs(const FaceAnalysis::FaceAnalyser& face_analyser, int flag = 1);
+// Update the matrix of AUs intensities
+void updateAUsRegRawMatrix();
+// Update the moving average for each AU
+void updateAUsRegMA();
+// Write out the AUs values (classification, raw intensity, moving average of intensity) on the current image for real-time visualization
+void visualizeAUs(cv::Mat& captured_image, const LandmarkDetector::FaceModelParameters& det_parameters);
 //===============================================
 
 
@@ -338,9 +348,11 @@ int main (int argc, char **argv)
 	FaceAnalysis::FaceAnalyserParameters face_analysis_params(arguments);
 	FaceAnalysis::FaceAnalyser face_analyser(face_analysis_params);
 
+	//================== Guilherme ==================
 	// Construct the vector with the ordered AUs names
 	ausNames = getOrderedAUsNames(face_analyser);
-	
+	//===============================================
+		
 	while(!done) // this is not a for loop as we might also be reading from a webcam
 	{
 		
@@ -615,15 +627,21 @@ int main (int argc, char **argv)
 			}
 			// Get ordered AUs values (presence and intensity)
 			ausClass = getRawAUs(face_analyser, 0); 
-			ausRegRaw = getRawAUs(face_analyser);			
-			//printf("YPR %.2f %.2f %.2f  cYPR %.2f %.2f %.2f\n", TO_DEG(yaw), TO_DEG(pitch), TO_DEG(roll), TO_DEG(cYaw), TO_DEG(cPitch), TO_DEG(cRoll));
+			ausRegRaw = getRawAUs(face_analyser);	
+			// Update the matrix of AUs intensities
+			updateAUsRegRawMatrix();
+			// Update the moving average for each AU
+			updateAUsRegMA();
 			//===============================================
 
 			// Visualising the tracker
 			if(visualize_track && !det_parameters.quiet_mode)
 			{
 				visualise_tracking(captured_image, face_model, det_parameters, gazeDirection0, gazeDirection1, frame_count, fx, fy, cx, cy);
-				visualisePoseAngles(captured_image, det_parameters);	// Guilherme
+				//================== Guilherme ==================
+				visualisePoseAngles(captured_image, det_parameters);
+				visualizeAUs(captured_image, det_parameters);
+				//===============================================
 			}
 
 			// Output the landmarks, pose, gaze, parameters and AUs
@@ -894,6 +912,53 @@ std::vector<double> getRawAUs(const FaceAnalysis::FaceAnalyser& face_analyser, i
 		INFO_STREAM("Wrong parameter for flag. Pass 1 for raw intensity values or 0 for presence values...");
 	}
 	return rawAUs;
+}
+
+// Update the matrix of AUs intensities
+void updateAUsRegRawMatrix() {
+	for (int i = 0; i < SIZE_AUS; i++) {
+		// Delete the first value of each AU intensity
+		ausRegRawMatrix[i].erase(ausRegRawMatrix[i].begin());
+		// Update each vector of AUs intensities 
+		ausRegRawMatrix[i].push_back(ausRegRaw[i]);
+	}
+}
+
+// Update the moving average for each AU
+void updateAUsRegMA() {
+	// Calculate the average of intensity for each AU
+	for (int i = 0; i < SIZE_AUS; i++) {
+		int auSum = 0;
+		for (int j = 0; j < SIZE_MA; j++) {
+			auSum += ausRegRawMatrix[i][j];
+		}
+		ausRegMA[i] = auSum / (double)SIZE_MA;
+	}
+}
+
+// Write out the AUs values (classification, raw intensity, moving average of intensity) on the current image for real-time visualization
+void visualizeAUs(cv::Mat& captured_image, const LandmarkDetector::FaceModelParameters& det_parameters) {
+	int xPos = 10;
+	int yPos = 100;
+	if (ausClass.size() == SIZE_AUS && ausRegRaw.size() == SIZE_AUS && ausRegMA.size() == SIZE_AUS) {
+		// Construct and write out the AU string on the current image
+		for (int i = 0; i < SIZE_AUS; i++) {
+			char au_char[255];
+			std::sprintf(au_char, " %d %.2f %.2f", (int)ausClass[i], ausRegRaw[i], ausRegMA[i]);
+			std::string au_st(ausNames[i]);
+			au_st += au_char;
+			cv::putText(captured_image, au_st, cv::Point(xPos, yPos), CV_FONT_HERSHEY_SIMPLEX, 0.5, CV_RGB(0, 0, 0), 1, CV_AA);
+			yPos = yPos + 20;
+		}
+
+		// Display the image with YPR and corrected YPR
+		if (!det_parameters.quiet_mode) {
+			cv::imshow("tracking_result", captured_image);	// This window has been created in visualise_tracking function
+		}
+	}
+	else {
+		INFO_STREAM("HEYYYY");
+	}
 }
 //==============================================
 
