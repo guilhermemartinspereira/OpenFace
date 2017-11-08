@@ -57,6 +57,15 @@
 #include <FaceAnalyser.h>
 #include <GazeEstimation.h>
 
+//================== Guilherme ==================
+#include < time.h >
+#if defined(_MSC_VER) || defined(_MSC_EXTENSIONS)
+	#define DELTA_EPOCH_IN_MICROSECS  11644473600000000Ui64
+#else
+	#define DELTA_EPOCH_IN_MICROSECS  11644473600000000ULL
+#endif
+//===============================================
+
 #ifndef CONFIG_DIR
 #define CONFIG_DIR "~"
 #endif
@@ -146,7 +155,7 @@ int64 t0 = 0;
 //================== Guilherme ==================
 #define TO_DEG(x) x * 180 / 3.141592
 #define TO_RAD(x) x * 3.141592 / 180
-#define SIZE_MA 5						// Size of the moving average
+#define SIZE_MA 6						// Size of the moving average
 #define SIZE_AUS 18						// Number of AUs
 //------ GLOBALS ------
 // YPR angles in rad
@@ -169,7 +178,18 @@ std::vector<double> ausClass;			// Ordered vector indicating the presence of eac
 std::vector<double> ausRegRaw;			// Ordered vector with the raw intensity of each action unit (1 to 5 scale)
 std::vector<double> ausRegMA(SIZE_AUS);	// Ordered vector with the moving average (MA) of each action unit 
 std::vector<std::vector<double>> ausRegRawMatrix(SIZE_AUS, std::vector<double>(SIZE_MA));	// Matrix to store the data for moving average
-std::vector<int> v = {1, 2, 3, 4, 5};
+// AUs steady state values for intensity
+double auSS_array[] = { 0.5, 0.3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };			
+std::vector<double> ausSS(auSS_array, auSS_array + SIZE_AUS);								
+// Timeval struct to store time in milliseconds and microseconds
+timeval t1, tLast_EYEBROWS, tLast_BLINK;
+long dt_EYEBROWS = 0;
+long dt_BLINK = 0;
+// Necessary to implement the gettimeofday() function
+struct timezone {
+	int  tz_minuteswest; /* minutes W of Greenwich */
+	int  tz_dsttime;     /* type of dst correction */
+};
 
 //------ FUNCTIONS ------
 // Update the YPR angles in radians
@@ -190,6 +210,10 @@ void updateAUsRegRawMatrix();
 void updateAUsRegMA();
 // Write out the AUs values (classification, raw intensity, moving average of intensity) on the current image for real-time visualization
 void visualizeAUs(cv::Mat& captured_image, const LandmarkDetector::FaceModelParameters& det_parameters);
+// Detect if any facial expression has been detected
+void detectFacialExp();
+// Function obtained from https://social.msdn.microsoft.com/Forums/vstudio/en-US/430449b3-f6dd-4e18-84de-eebd26a8d668/gettimeofday?forum=vcgeneral
+int gettimeofday(struct timeval *tv, struct timezone *tz);
 //===============================================
 
 
@@ -351,6 +375,10 @@ int main (int argc, char **argv)
 	//================== Guilherme ==================
 	// Construct the vector with the ordered AUs names
 	ausNames = getOrderedAUsNames(face_analyser);
+	// Initialize timeval variables
+	gettimeofday(&t1, NULL);
+	gettimeofday(&tLast_EYEBROWS, NULL);
+	gettimeofday(&tLast_BLINK, NULL);
 	//===============================================
 		
 	while(!done) // this is not a for loop as we might also be reading from a webcam
@@ -632,6 +660,8 @@ int main (int argc, char **argv)
 			updateAUsRegRawMatrix();
 			// Update the moving average for each AU
 			updateAUsRegMA();
+			// Check if any facial expression has been detected
+			detectFacialExp();
 			//===============================================
 
 			// Visualising the tracker
@@ -928,7 +958,7 @@ void updateAUsRegRawMatrix() {
 void updateAUsRegMA() {
 	// Calculate the average of intensity for each AU
 	for (int i = 0; i < SIZE_AUS; i++) {
-		int auSum = 0;
+		double auSum = 0;
 		for (int j = 0; j < SIZE_MA; j++) {
 			auSum += ausRegRawMatrix[i][j];
 		}
@@ -957,8 +987,68 @@ void visualizeAUs(cv::Mat& captured_image, const LandmarkDetector::FaceModelPara
 		}
 	}
 	else {
-		INFO_STREAM("HEYYYY");
+		INFO_STREAM("Size mismatch of ausClass / ausRegRaw / ausRegMA variables!");
 	}
+}
+
+// Detect if any facial expression has been detected
+void detectFacialExp() {
+	// Get current timestamp
+	timeval tNow;
+	gettimeofday(&tNow, NULL);
+	// Calculate dt for EYEBROWS expression
+	dt_EYEBROWS = (tNow.tv_sec - tLast_EYEBROWS.tv_sec) * 1000;		// In ms
+	dt_EYEBROWS += (tNow.tv_usec - tLast_EYEBROWS.tv_usec) / 1000;	// In ms
+	// Calculate dt for BLINK expression
+	dt_BLINK = (tNow.tv_sec - tLast_BLINK.tv_sec) * 1000;			// In ms
+	dt_BLINK += (tNow.tv_usec - tLast_BLINK.tv_usec) / 1000;		// In ms
+	// If EYEBROWS up
+	if (ausRegMA[0] >= ausSS[0] * 3.0 && ausRegMA[1] >= ausSS[1] * 2.5 && dt_EYEBROWS >= 500) {
+		INFO_STREAM("EYEBROWS_UP");
+		gettimeofday(&tLast_EYEBROWS, NULL);
+	}
+	// If BLINK
+	else if (ausClass[17] == 1 && ausRegMA[17] >= 1.0 && dt_BLINK >= 400) {
+		INFO_STREAM("BLINK");
+		gettimeofday(&tLast_BLINK, NULL);
+	}
+}
+
+/*	Function obtained from 
+	https://social.msdn.microsoft.com/Forums/vstudio/en-US/430449b3-f6dd-4e18-84de-eebd26a8d668/gettimeofday?forum=vcgeneral
+*/
+int gettimeofday(struct timeval *tv, struct timezone *tz) {
+	FILETIME ft;
+	unsigned __int64 tmpres = 0;
+	static int tzflag;
+
+	if (NULL != tv)
+	{
+		GetSystemTimeAsFileTime(&ft);
+
+		tmpres |= ft.dwHighDateTime;
+		tmpres <<= 32;
+		tmpres |= ft.dwLowDateTime;
+
+		/*converting file time to unix epoch*/
+		tmpres -= DELTA_EPOCH_IN_MICROSECS;
+		tmpres /= 10;  /*convert into microseconds*/
+		tv->tv_sec = (long)(tmpres / 1000000UL);
+		tv->tv_usec = (long)(tmpres % 1000000UL);
+	}
+
+	if (NULL != tz)
+	{
+		if (!tzflag)
+		{
+			_tzset();
+			tzflag++;
+		}
+		tz->tz_minuteswest = _timezone / 60;
+		tz->tz_dsttime = _daylight;
+	}
+
+	return 0;
 }
 //==============================================
 
