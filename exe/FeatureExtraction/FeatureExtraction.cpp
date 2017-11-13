@@ -155,8 +155,9 @@ int64 t0 = 0;
 //================== Guilherme ==================
 #define TO_DEG(x) x * 180 / 3.141592
 #define TO_RAD(x) x * 3.141592 / 180
-#define SIZE_MA 6						// Size of the moving average
 #define SIZE_AUS 18						// Number of AUs
+#define SIZE_MA 6						// Size of the moving average
+#define SIZE_D 4						// Size of derivative
 //------ GLOBALS ------
 // YPR angles in rad
 float yaw = 0;
@@ -173,16 +174,20 @@ float cRoll = 0;
 // Indicate if the YPR angles are corrected or not
 bool zeroRefYPRSet = false;
 // Action Units (AUs)
-std::vector<std::string> ausNames;		// Vector ordered by the names of the 18 action units
-std::vector<double> ausClass;			// Ordered vector indicating the presence of each action unit (0 or 1)
-std::vector<double> ausRegRaw;			// Ordered vector with the raw intensity of each action unit (1 to 5 scale)
-std::vector<double> ausRegMA(SIZE_AUS);	// Ordered vector with the moving average (MA) of each action unit 
+std::vector<std::string> ausNames;			// Ordered vector with the 18 action units names
+std::vector<double> ausClass;				// Ordered vector indicating the presence of each action unit (0 or 1)
+std::vector<double> ausRegRaw;				// Ordered vector with the raw intensity of each action unit (1 to 5 scale)
+std::vector<double> ausRegMA(SIZE_AUS);		// Ordered vector with the moving average (MA) of each action unit 
 std::vector<std::vector<double>> ausRegRawMatrix(SIZE_AUS, std::vector<double>(SIZE_MA));	// Matrix to store the data for moving average
+// Derivative of AUs
+std::vector<double> ausDeriv(SIZE_AUS);		// Ordered vector with the action units derivatives
+std::vector<long> ausTime(SIZE_D);			// Vector to store the timestamp for the last SIZE_D MA intensities
+std::vector<std::vector<double>> ausDerivMatrix(SIZE_AUS, std::vector<double>(SIZE_D));		// Matrix to store the MA intensities for derivative calculation
 // AUs steady state values for intensity
 double auSS_array[] = { 0.5, 0.3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };			
 std::vector<double> ausSS(auSS_array, auSS_array + SIZE_AUS);								
 // Timeval struct to store time in milliseconds and microseconds
-timeval t1, tLast_EYEBROWS, tLast_BLINK;
+timeval tLast_EYEBROWS, tLast_BLINK, tInitial;
 long dt_EYEBROWS = 0;
 long dt_BLINK = 0;
 // Necessary to implement the gettimeofday() function
@@ -208,12 +213,19 @@ std::vector<double> getRawAUs(const FaceAnalysis::FaceAnalyser& face_analyser, i
 void updateAUsRegRawMatrix();
 // Update the moving average for each AU
 void updateAUsRegMA();
-// Write out the AUs values (classification, raw intensity, moving average of intensity) on the current image for real-time visualization
+// Update the matrix with MA intensities for derivative calculation
+void updateAUsDerivMatrix();
+// Update the derivative of AUs moving average
+void updateAUsDeriv();
+// Write out the AUs values (classification, raw intensity, moving average of intensity, derivative) on the current image for real-time visualization
 void visualizeAUs(cv::Mat& captured_image, const LandmarkDetector::FaceModelParameters& det_parameters);
 // Detect if any facial expression has been detected
 void detectFacialExp();
-// Function obtained from https://social.msdn.microsoft.com/Forums/vstudio/en-US/430449b3-f6dd-4e18-84de-eebd26a8d668/gettimeofday?forum=vcgeneral
+/*Get the timestamp in seconds and microseconds
+Obtained from https://social.msdn.microsoft.com/Forums/vstudio/en-US/430449b3-f6dd-4e18-84de-eebd26a8d668/gettimeofday?forum=vcgeneral */
 int gettimeofday(struct timeval *tv, struct timezone *tz);
+// Output AUs value and timestamp in a text file
+void outputAUTimestamp(std::ofstream* outFile);
 //===============================================
 
 
@@ -376,9 +388,11 @@ int main (int argc, char **argv)
 	// Construct the vector with the ordered AUs names
 	ausNames = getOrderedAUsNames(face_analyser);
 	// Initialize timeval variables
-	gettimeofday(&t1, NULL);
 	gettimeofday(&tLast_EYEBROWS, NULL);
 	gettimeofday(&tLast_BLINK, NULL);
+	gettimeofday(&tInitial, NULL);
+	// Output file to analyse AU01 and AU02 in time
+	std::ofstream outFile;
 	//===============================================
 		
 	while(!done) // this is not a for loop as we might also be reading from a webcam
@@ -662,6 +676,12 @@ int main (int argc, char **argv)
 			updateAUsRegMA();
 			// Check if any facial expression has been detected
 			detectFacialExp();
+			// Update the matrix with MA intensities for derivative calculation
+			updateAUsDerivMatrix();
+			// Update the derivative of AUs moving average
+			updateAUsDeriv();
+			// Output AUs value and timestamp in a text file
+			//outputAUTimestamp(&outFile);
 			//===============================================
 
 			// Visualising the tracker
@@ -886,13 +906,13 @@ void visualisePoseAngles(cv::Mat& captured_image, const LandmarkDetector::FaceMo
 	string ypr_st("YPR: ");
 	ypr_st += ypr_char;
 	// Write YPR angles on the upper-left corner of the image 
-	cv::putText(captured_image, ypr_st, cv::Point(10, 40), CV_FONT_HERSHEY_SIMPLEX, 0.5, CV_RGB(0, 0, 0), 1, CV_AA);
+	cv::putText(captured_image, ypr_st, cv::Point(10, 40), CV_FONT_HERSHEY_SIMPLEX, 0.5, CV_RGB(255, 0, 0), 1, CV_AA);
 	// Construct cYPR string
 	std::sprintf(cypr_char, "%.2f %.2f %.2f", TO_DEG(cYaw), TO_DEG(cPitch), TO_DEG(cRoll));
 	string cypr_st("cYPR: ");
 	cypr_st += cypr_char;
 	// Write corrected YPR angles on the upper-left corner of the image 
-	cv::putText(captured_image, cypr_st, cv::Point(10, 60), CV_FONT_HERSHEY_SIMPLEX, 0.5, CV_RGB(0, 0, 0), 1, CV_AA);
+	cv::putText(captured_image, cypr_st, cv::Point(10, 60), CV_FONT_HERSHEY_SIMPLEX, 0.5, CV_RGB(255, 0, 0), 1, CV_AA);
 	//std::cout << ypr_st << "  " << cypr_st << endl;
 
 	// Display the image with YPR and corrected YPR
@@ -949,7 +969,7 @@ void updateAUsRegRawMatrix() {
 	for (int i = 0; i < SIZE_AUS; i++) {
 		// Delete the first value of each AU intensity
 		ausRegRawMatrix[i].erase(ausRegRawMatrix[i].begin());
-		// Update each vector of AUs intensities 
+		// Update the end of the AUs intensities vectors 
 		ausRegRawMatrix[i].push_back(ausRegRaw[i]);
 	}
 }
@@ -966,7 +986,39 @@ void updateAUsRegMA() {
 	}
 }
 
-// Write out the AUs values (classification, raw intensity, moving average of intensity) on the current image for real-time visualization
+// Update the matrix with MA intensities for derivative calculation
+void updateAUsDerivMatrix() {
+	// Get the actual timestamp
+	timeval t;
+	gettimeofday(&t, NULL);
+	long tms = (t.tv_sec - tInitial.tv_sec) * 1000;		// ms
+	tms += (t.tv_usec - tInitial.tv_usec) / 1000;		// ms
+	// Update the timestamp vector for the last SIZE_D MA intensities
+	ausTime.erase(ausTime.begin());
+	ausTime.push_back(tms);
+	// Update the matrix to calculate the MA derivatives
+	for (int i = 0; i < SIZE_AUS; i++) {
+		// Delete the first value of each AU intensity
+		ausDerivMatrix[i].erase(ausDerivMatrix[i].begin());
+		// Update the end of the AUs intensities vectors 
+		ausDerivMatrix[i].push_back(ausRegMA[i]);
+	}
+}
+
+// Update the derivative of AUs moving average
+void updateAUsDeriv() {
+	double dt = (ausTime[SIZE_D-1] - ausTime[0]) / 1000.0;	// In seconds
+	//INFO_STREAM("ausTime " << ausTime[0] << " " << ausTime[1] << " " << ausTime[2] << " " << ausTime[3] << " || dt " << dt);
+	for (int i = 0; i < SIZE_AUS; i++) {
+		double deriv = (ausDerivMatrix[i][SIZE_D-1] - ausDerivMatrix[i][0]) / dt;
+		ausDeriv[i] = deriv;
+		/*if (i == 1) {
+			INFO_STREAM("dt " << dt << " diff_Intensity " << ausDerivMatrix[i][SIZE_D] - ausDerivMatrix[i][0] << " deriv " << deriv);
+		}*/
+	}
+}
+
+// Write out the AUs values (classification, raw intensity, moving average of intensity, derivative) on the current image for real-time visualization
 void visualizeAUs(cv::Mat& captured_image, const LandmarkDetector::FaceModelParameters& det_parameters) {
 	int xPos = 10;
 	int yPos = 100;
@@ -974,10 +1026,10 @@ void visualizeAUs(cv::Mat& captured_image, const LandmarkDetector::FaceModelPara
 		// Construct and write out the AU string on the current image
 		for (int i = 0; i < SIZE_AUS; i++) {
 			char au_char[255];
-			std::sprintf(au_char, " %d %.2f %.2f", (int)ausClass[i], ausRegRaw[i], ausRegMA[i]);
+			std::sprintf(au_char, " %d %.1f %.1f %.1f", (int)ausClass[i], ausRegRaw[i], ausRegMA[i], ausDeriv[i]);
 			std::string au_st(ausNames[i]);
 			au_st += au_char;
-			cv::putText(captured_image, au_st, cv::Point(xPos, yPos), CV_FONT_HERSHEY_SIMPLEX, 0.5, CV_RGB(0, 0, 0), 1, CV_AA);
+			cv::putText(captured_image, au_st, cv::Point(xPos, yPos), CV_FONT_HERSHEY_SIMPLEX, 0.5, CV_RGB(255, 0, 0), 1, CV_AA);
 			yPos = yPos + 20;
 		}
 
@@ -1003,19 +1055,22 @@ void detectFacialExp() {
 	dt_BLINK = (tNow.tv_sec - tLast_BLINK.tv_sec) * 1000;			// In ms
 	dt_BLINK += (tNow.tv_usec - tLast_BLINK.tv_usec) / 1000;		// In ms
 	// If EYEBROWS up
-	if (ausRegMA[0] >= ausSS[0] * 3.0 && ausRegMA[1] >= ausSS[1] * 2.5 && dt_EYEBROWS >= 500) {
+	/*if (ausRegMA[0] >= ausSS[0] * 3.0 && ausRegMA[1] >= ausSS[1] * 2.5 && dt_EYEBROWS >= 500) {*/
+	//if (ausRegMA[0] >= 2.7 && ausRegMA[1] >= 2.7 && dt_EYEBROWS >= 700) {
+	if (ausDeriv[0] >= 4.0 && ausDeriv[1] >= 4.0 && dt_EYEBROWS >= 700) {
 		INFO_STREAM("EYEBROWS_UP");
 		gettimeofday(&tLast_EYEBROWS, NULL);
 	}
 	// If BLINK
-	else if (ausClass[17] == 1 && ausRegMA[17] >= 1.0 && dt_BLINK >= 400) {
+	//else if (ausClass[17] == 1 && ausRegMA[17] >= 1.8 && dt_BLINK >= 400) {
+	else if (ausDeriv[17] >= 3.5 && dt_BLINK >= 250) {		// Class value is not useful (fails in some cases)
 		INFO_STREAM("BLINK");
 		gettimeofday(&tLast_BLINK, NULL);
 	}
 }
 
-/*	Function obtained from 
-	https://social.msdn.microsoft.com/Forums/vstudio/en-US/430449b3-f6dd-4e18-84de-eebd26a8d668/gettimeofday?forum=vcgeneral
+/*Get the timestamp in seconds and microseconds
+Obtained from https://social.msdn.microsoft.com/Forums/vstudio/en-US/430449b3-f6dd-4e18-84de-eebd26a8d668/gettimeofday?forum=vcgeneral
 */
 int gettimeofday(struct timeval *tv, struct timezone *tz) {
 	FILETIME ft;
@@ -1049,6 +1104,24 @@ int gettimeofday(struct timeval *tv, struct timezone *tz) {
 	}
 
 	return 0;
+}
+
+// Output AUs value and timestamp in a text file
+void outputAUTimestamp(std::ofstream* outFile) {
+	// Get timestamp
+	timeval t;
+	gettimeofday(&t, NULL);
+	long tms = (t.tv_sec - tInitial.tv_sec) * 1000;		// In ms
+	tms += (t.tv_usec - tInitial.tv_usec) / 1000;		// In ms
+	// Create string to write on the text file
+	/*char ausArr[255];
+	std::sprintf(ausArr, "%.2f %.2f %l", ausRegMA[0], ausRegMA[1], tms);
+	std::string ausSt(ausArr);*/
+	// Write string on the text file
+	outFile->open("outAUs.txt", ios::out | ios::app);
+	*outFile << ausRegMA[0] << " " << ausRegMA[1] << " " << tms << endl;
+	outFile->close();
+	//*outFile << ausRegMA[0] << " " << ausRegMA[1] << " " << tms << endl;
 }
 //==============================================
 
