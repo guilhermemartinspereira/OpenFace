@@ -181,15 +181,16 @@ std::vector<double> ausRegMA(SIZE_AUS);		// Ordered vector with the moving avera
 std::vector<std::vector<double>> ausRegRawMatrix(SIZE_AUS, std::vector<double>(SIZE_MA));	// Matrix to store the data for moving average
 // Derivative of AUs
 std::vector<double> ausDeriv(SIZE_AUS);		// Ordered vector with the action units derivatives
-std::vector<long> ausTime(SIZE_D);			// Vector to store the timestamp for the last SIZE_D MA intensities
+std::vector<long> ausTime(SIZE_D);			// Vector to store SIZE_D timestamps for the last MA intensities
 std::vector<std::vector<double>> ausDerivMatrix(SIZE_AUS, std::vector<double>(SIZE_D));		// Matrix to store the MA intensities for derivative calculation
-// AUs steady state values for intensity
-double auSS_array[] = { 0.5, 0.3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };			
-std::vector<double> ausSS(auSS_array, auSS_array + SIZE_AUS);								
 // Timeval struct to store time in milliseconds and microseconds
 timeval tLast_EYEBROWS, tLast_BLINK, tInitial;
 long dt_EYEBROWS = 0;
 long dt_BLINK = 0;
+// Variables to detect facial expressions based on max and min derivatives
+int dMax = 0;
+int dMin = 0;
+timeval tEyebrows;
 // Necessary to implement the gettimeofday() function
 struct timezone {
 	int  tz_minuteswest; /* minutes W of Greenwich */
@@ -224,8 +225,10 @@ void detectFacialExp();
 /*Get the timestamp in seconds and microseconds
 Obtained from https://social.msdn.microsoft.com/Forums/vstudio/en-US/430449b3-f6dd-4e18-84de-eebd26a8d668/gettimeofday?forum=vcgeneral */
 int gettimeofday(struct timeval *tv, struct timezone *tz);
-// Output AUs value and timestamp in a text file
-void outputAUTimestamp(std::ofstream* outFile);
+// Get difference of time in millisenconds based on a reference timeval passed as reference
+long getTimeDiff(struct timeval *tvRef);
+// Output to a text file some AUs MA values, derivatives and timestamps (in milliseconds) for offline analysis 
+void outputAUsData(std::ofstream* outFile);
 //===============================================
 
 
@@ -674,14 +677,14 @@ int main (int argc, char **argv)
 			updateAUsRegRawMatrix();
 			// Update the moving average for each AU
 			updateAUsRegMA();
-			// Check if any facial expression has been detected
-			detectFacialExp();
 			// Update the matrix with MA intensities for derivative calculation
 			updateAUsDerivMatrix();
 			// Update the derivative of AUs moving average
 			updateAUsDeriv();
-			// Output AUs value and timestamp in a text file
-			//outputAUTimestamp(&outFile);
+			// Check if any facial expression has been detected
+			detectFacialExp();
+			// Output AUs data and timestamp in a text file for further analysis
+			outputAUsData(&outFile);
 			//===============================================
 
 			// Visualising the tracker
@@ -988,11 +991,8 @@ void updateAUsRegMA() {
 
 // Update the matrix with MA intensities for derivative calculation
 void updateAUsDerivMatrix() {
-	// Get the actual timestamp
-	timeval t;
-	gettimeofday(&t, NULL);
-	long tms = (t.tv_sec - tInitial.tv_sec) * 1000;		// ms
-	tms += (t.tv_usec - tInitial.tv_usec) / 1000;		// ms
+	// Get the actual time in milliseconds
+	long tms = getTimeDiff(&tInitial);
 	// Update the timestamp vector for the last SIZE_D MA intensities
 	ausTime.erase(ausTime.begin());
 	ausTime.push_back(tms);
@@ -1057,10 +1057,45 @@ void detectFacialExp() {
 	// If EYEBROWS up
 	/*if (ausRegMA[0] >= ausSS[0] * 3.0 && ausRegMA[1] >= ausSS[1] * 2.5 && dt_EYEBROWS >= 500) {*/
 	//if (ausRegMA[0] >= 2.7 && ausRegMA[1] >= 2.7 && dt_EYEBROWS >= 700) {
-	if (ausDeriv[0] >= 4.0 && ausDeriv[1] >= 4.0 && dt_EYEBROWS >= 700) {
+	/*if (ausDeriv[0] >= 6.0 && ausDeriv[1] >= 6.0 && dt_EYEBROWS >= 700) {
 		INFO_STREAM("EYEBROWS_UP");
 		gettimeofday(&tLast_EYEBROWS, NULL);
+	}*/
+	
+	// Detect dMin derivative
+	if (dMax == 1) {
+		INFO_STREAM(getTimeDiff(&tEyebrows));
+		if (getTimeDiff(&tEyebrows) <= 500) {
+			if (ausDeriv[0] <= -5.5) {
+				dMin = 1;
+				INFO_STREAM("dMin = 1");
+			}
+		}
+		else {
+			INFO_STREAM("RESET dMax and dMin");
+			dMax = 0;
+			dMin = 0;
+		}
 	}
+	else if (dMax == 0) {
+		// Detect dMax derivative
+		if (ausDeriv[0] >= 5.5) {
+			dMax = 1;
+			gettimeofday(&tEyebrows, NULL);
+			INFO_STREAM("dMax = 1");
+		}
+	}
+
+	if (dMax && dMin) {
+		INFO_STREAM("EYEBROWS_UP");
+		dMax = 0;
+		dMin = 0;
+	}
+
+	/*if (ausDeriv[0] >= 6.0 && ausDeriv[1] >= 6.0 && dt_EYEBROWS >= 700) {
+	INFO_STREAM("EYEBROWS_UP");
+	gettimeofday(&tLast_EYEBROWS, NULL);
+	}*/
 	// If BLINK
 	//else if (ausClass[17] == 1 && ausRegMA[17] >= 1.8 && dt_BLINK >= 400) {
 	else if (ausDeriv[17] >= 3.5 && dt_BLINK >= 250) {		// Class value is not useful (fails in some cases)
@@ -1106,8 +1141,20 @@ int gettimeofday(struct timeval *tv, struct timezone *tz) {
 	return 0;
 }
 
-// Output AUs value and timestamp in a text file
-void outputAUTimestamp(std::ofstream* outFile) {
+// Get difference of time in millisenconds based on a reference timeval passed as reference
+long getTimeDiff(struct timeval *tvRef) {
+	long dt = 0;
+	// Get current timestamp
+	timeval tNow;
+	gettimeofday(&tNow, NULL);
+	// Calculate dt with respect to timeval reference
+	dt = (tNow.tv_sec - tvRef->tv_sec) * 1000;		// In ms
+	dt += (tNow.tv_usec - tvRef->tv_usec) / 1000;		// In ms
+	return dt;
+}
+
+// Output to a text file some AUs MA values, derivatives and timestamps (in milliseconds) for offline analysis 
+void outputAUsData(std::ofstream* outFile) {
 	// Get timestamp
 	timeval t;
 	gettimeofday(&t, NULL);
@@ -1119,7 +1166,7 @@ void outputAUTimestamp(std::ofstream* outFile) {
 	std::string ausSt(ausArr);*/
 	// Write string on the text file
 	outFile->open("outAUs.txt", ios::out | ios::app);
-	*outFile << ausRegMA[0] << " " << ausRegMA[1] << " " << tms << endl;
+	*outFile << ausRegMA[0] << " " << ausDeriv[0] << " " << ausRegMA[1] << " " << ausDeriv[1] << " " << ausRegMA[17] << " " << ausDeriv[17] << " " << tms << endl;
 	outFile->close();
 	//*outFile << ausRegMA[0] << " " << ausRegMA[1] << " " << tms << endl;
 }
