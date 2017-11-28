@@ -227,7 +227,7 @@ Obtained from https://social.msdn.microsoft.com/Forums/vstudio/en-US/430449b3-f6
 int gettimeofday(struct timeval *tv, struct timezone *tz);
 // Get difference of time in millisenconds based on a reference timeval passed as reference
 long getTimeDiff(struct timeval *tvRef);
-// Output to a text file some AUs MA values, derivatives and timestamps (in milliseconds) for offline analysis 
+// Output to a text file with AUs MA values, derivatives and timestamps (in milliseconds) for offline analysis 
 void outputAUsData(std::ofstream* outFile);
 //===============================================
 
@@ -1064,15 +1064,15 @@ void detectFacialExp() {
 	
 	// Detect dMin derivative
 	if (dMax == 1) {
-		INFO_STREAM(getTimeDiff(&tEyebrows));
+		//INFO_STREAM(getTimeDiff(&tEyebrows));
 		if (getTimeDiff(&tEyebrows) <= 500) {
 			if (ausDeriv[0] <= -5.5) {
 				dMin = 1;
-				INFO_STREAM("dMin = 1");
+				//INFO_STREAM("dMin = 1");
 			}
 		}
 		else {
-			INFO_STREAM("RESET dMax and dMin");
+			//INFO_STREAM("RESET dMax and dMin");
 			dMax = 0;
 			dMin = 0;
 		}
@@ -1082,7 +1082,7 @@ void detectFacialExp() {
 		if (ausDeriv[0] >= 5.5) {
 			dMax = 1;
 			gettimeofday(&tEyebrows, NULL);
-			INFO_STREAM("dMax = 1");
+			//INFO_STREAM("dMax = 1");
 		}
 	}
 
@@ -1153,22 +1153,24 @@ long getTimeDiff(struct timeval *tvRef) {
 	return dt;
 }
 
-// Output to a text file some AUs MA values, derivatives and timestamps (in milliseconds) for offline analysis 
+// Output to a text file with AUs MA values, derivatives and timestamps (in milliseconds) for offline analysis 
 void outputAUsData(std::ofstream* outFile) {
 	// Get timestamp
-	timeval t;
-	gettimeofday(&t, NULL);
-	long tms = (t.tv_sec - tInitial.tv_sec) * 1000;		// In ms
-	tms += (t.tv_usec - tInitial.tv_usec) / 1000;		// In ms
-	// Create string to write on the text file
-	/*char ausArr[255];
-	std::sprintf(ausArr, "%.2f %.2f %l", ausRegMA[0], ausRegMA[1], tms);
-	std::string ausSt(ausArr);*/
+	long tms = getTimeDiff(&tInitial);
+	char tms_arr[10];
+	std::sprintf(tms_arr, "%ld", tms);
+	// Create line string with AUs MA values, derivatives and timestamp
+	std::string ausData;	
+	for (int i = 0; i < SIZE_AUS; i++) {
+		char aus_arr[255];
+		std::sprintf(aus_arr, "%.2f %.2f ", ausRegMA[i], ausDeriv[i]);	// Write MA value and its derivative for each AU
+		ausData += aus_arr;
+	}
+	ausData += tms_arr;
 	// Write string on the text file
 	outFile->open("outAUs.txt", ios::out | ios::app);
-	*outFile << ausRegMA[0] << " " << ausDeriv[0] << " " << ausRegMA[1] << " " << ausDeriv[1] << " " << ausRegMA[17] << " " << ausDeriv[17] << " " << tms << endl;
+	*outFile << ausData << endl;
 	outFile->close();
-	//*outFile << ausRegMA[0] << " " << ausRegMA[1] << " " << tms << endl;
 }
 //==============================================
 
