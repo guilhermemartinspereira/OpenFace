@@ -414,6 +414,10 @@ int main (int argc, char **argv)
 	ausActivations[0].ts = 600;
 	ausActivations[0].upperThreshold = 5.5;
 	ausActivations[0].bottomThreshold = -5.5;
+	ausActivations[17].name = "au45";
+	ausActivations[17].ts = 600;
+	ausActivations[17].upperThreshold = 2.5;
+	ausActivations[17].bottomThreshold = -2.5;
 	//===============================================
 		
 	while(!done) // this is not a for loop as we might also be reading from a webcam
@@ -1091,7 +1095,32 @@ void checkAUsActiv() {
 			}
 		}
 	}
-		
+	// Check AU45 if it is not activated
+	if (ausActivations[17].activated == false) {
+		if (ausActivations[17].upperFlag == true) {
+			if (getTimeDiff(&ausActivations[17].upperTimestamp) <= ausActivations[17].ts) {
+				//INFO_STREAM("au01 " << getTimeDiff(&ausActivations[1].upperTimestamp));
+				if (ausDeriv[17] <= ausActivations[17].bottomThreshold) {
+					ausActivations[17].bottomFlag = true;
+					ausActivations[17].activated = true;
+					//INFO_STREAM("au01 bottom");
+				}
+			}
+			else {
+				//INFO_STREAM("au01 RESET");
+				ausActivations[17].upperFlag = false;
+				ausActivations[17].bottomFlag = false;
+			}
+		}
+		else if (ausActivations[17].upperFlag == false) {
+			// Detect upperThreshold derivative
+			if (ausDeriv[17] >= ausActivations[17].upperThreshold) {
+				ausActivations[17].upperFlag = true;
+				gettimeofday(&ausActivations[17].upperTimestamp, NULL);
+				//INFO_STREAM("au01 upper");
+			}
+		}
+	}
 }
 
 // Detect if any facial expression has been detected
@@ -1102,6 +1131,13 @@ void detectFacialExp() {
 		ausActivations[0].upperFlag = false;
 		ausActivations[0].bottomFlag = false;
 		ausActivations[0].activated = false;
+	}
+	// BLINK
+	if (ausActivations[17].activated) {
+		INFO_STREAM("BLINK");
+		ausActivations[17].upperFlag = false;
+		ausActivations[17].bottomFlag = false;
+		ausActivations[17].activated = false;
 	}
 }
 
