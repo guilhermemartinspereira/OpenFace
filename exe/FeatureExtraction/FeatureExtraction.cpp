@@ -414,14 +414,33 @@ int main (int argc, char **argv)
 	ausActivations[0].ts = 600;
 	ausActivations[0].upperThreshold = 5.5;
 	ausActivations[0].bottomThreshold = -5.5;
-	ausActivations[0].name = "au26";
+	ausActivations[0].upperFlag = false;
+	ausActivations[0].bottomFlag = false;
+	ausActivations[0].activated = false;
+
+	ausActivations[9].name = "au14";
+	ausActivations[9].ts = 700;
+	ausActivations[9].upperThreshold = 3.5;
+	ausActivations[9].bottomThreshold = -3.5;
+	ausActivations[9].upperFlag = false;
+	ausActivations[9].bottomFlag = false;
+	ausActivations[9].activated = false;
+	
+	ausActivations[15].name = "au26";
 	ausActivations[15].ts = 750;
 	ausActivations[15].upperThreshold = 4.0;
 	ausActivations[15].bottomThreshold = -4.0;
+	ausActivations[15].upperFlag = false;
+	ausActivations[15].bottomFlag = false;
+	ausActivations[15].activated = false;
+	
 	ausActivations[17].name = "au45";
 	ausActivations[17].ts = 600;
 	ausActivations[17].upperThreshold = 2.5;
 	ausActivations[17].bottomThreshold = -2.5;
+	ausActivations[17].upperFlag = false;
+	ausActivations[17].bottomFlag = false;
+	ausActivations[17].activated = false;
 	//===============================================
 		
 	while(!done) // this is not a for loop as we might also be reading from a webcam
@@ -1099,6 +1118,32 @@ void checkAUsActiv() {
 			}
 		}
 	}
+	// Check AU14 if it is not activated
+	if (ausActivations[9].activated == false) {
+		if (ausActivations[9].upperFlag == true) {
+			if (getTimeDiff(&ausActivations[9].upperTimestamp) <= ausActivations[9].ts) {
+				//INFO_STREAM("au01 " << getTimeDiff(&ausActivations[1].upperTimestamp));
+				if (ausDeriv[9] <= ausActivations[9].bottomThreshold) {
+					ausActivations[9].bottomFlag = true;
+					ausActivations[9].activated = true;
+					//INFO_STREAM("au14 bottom");
+				}
+			}
+			else {
+				//INFO_STREAM("au01 RESET");
+				ausActivations[9].upperFlag = false;
+				ausActivations[9].bottomFlag = false;
+			}
+		}
+		else if (ausActivations[9].upperFlag == false) {
+			// Detect upperThreshold derivative
+			if (ausDeriv[9] >= ausActivations[9].upperThreshold) {
+				ausActivations[9].upperFlag = true;
+				gettimeofday(&ausActivations[9].upperTimestamp, NULL);
+				//INFO_STREAM("au14 upper");
+			}
+		}
+	}
 	// Check AU26 if it is not activated
 	if (ausActivations[15].activated == false) {
 		if (ausActivations[15].upperFlag == true) {
@@ -1180,6 +1225,13 @@ void detectFacialExp() {
 		ausActivations[17].upperFlag = false;
 		ausActivations[17].bottomFlag = false;
 		ausActivations[17].activated = false;
+	}
+	// SMILE
+	if (ausActivations[9].activated) {
+		INFO_STREAM("SMILE");
+		ausActivations[9].upperFlag = false;
+		ausActivations[9].bottomFlag = false;
+		ausActivations[9].activated = false;
 	}
 }
 
