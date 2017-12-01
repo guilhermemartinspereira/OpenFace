@@ -418,6 +418,14 @@ int main (int argc, char **argv)
 	ausActivations[0].bottomFlag = false;
 	ausActivations[0].activated = false;
 
+	ausActivations[4].name = "au06";
+	ausActivations[4].ts = 600;
+	ausActivations[4].upperThreshold = 3.5;
+	ausActivations[4].bottomThreshold = -3.5;
+	ausActivations[4].upperFlag = false;
+	ausActivations[4].bottomFlag = false;
+	ausActivations[4].activated = false;
+
 	ausActivations[9].name = "au14";
 	ausActivations[9].ts = 700;
 	ausActivations[9].upperThreshold = 3.5;
@@ -425,15 +433,7 @@ int main (int argc, char **argv)
 	ausActivations[9].upperFlag = false;
 	ausActivations[9].bottomFlag = false;
 	ausActivations[9].activated = false;
-	
-	ausActivations[15].name = "au26";
-	ausActivations[15].ts = 750;
-	ausActivations[15].upperThreshold = 4.0;
-	ausActivations[15].bottomThreshold = -4.0;
-	ausActivations[15].upperFlag = false;
-	ausActivations[15].bottomFlag = false;
-	ausActivations[15].activated = false;
-	
+		
 	ausActivations[17].name = "au45";
 	ausActivations[17].ts = 600;
 	ausActivations[17].upperThreshold = 2.5;
@@ -1118,6 +1118,32 @@ void checkAUsActiv() {
 			}
 		}
 	}
+	// Check AU06 if it is not activated
+	if (ausActivations[4].activated == false) {
+		if (ausActivations[4].upperFlag == true) {
+			if (getTimeDiff(&ausActivations[4].upperTimestamp) <= ausActivations[4].ts) {
+				//INFO_STREAM("au01 " << getTimeDiff(&ausActivations[1].upperTimestamp));
+				if (ausDeriv[4] <= ausActivations[4].bottomThreshold) {
+					ausActivations[4].bottomFlag = true;
+					ausActivations[4].activated = true;
+					//INFO_STREAM("au01 bottom");
+				}
+			}
+			else {
+				//INFO_STREAM("au01 RESET");
+				ausActivations[4].upperFlag = false;
+				ausActivations[4].bottomFlag = false;
+			}
+		}
+		else if (ausActivations[4].upperFlag == false) {
+			// Detect upperThreshold derivative
+			if (ausDeriv[4] >= ausActivations[4].upperThreshold) {
+				ausActivations[4].upperFlag = true;
+				gettimeofday(&ausActivations[4].upperTimestamp, NULL);
+				//INFO_STREAM("au01 upper");
+			}
+		}
+	}
 	// Check AU14 if it is not activated
 	if (ausActivations[9].activated == false) {
 		if (ausActivations[9].upperFlag == true) {
@@ -1141,32 +1167,6 @@ void checkAUsActiv() {
 				ausActivations[9].upperFlag = true;
 				gettimeofday(&ausActivations[9].upperTimestamp, NULL);
 				//INFO_STREAM("au14 upper");
-			}
-		}
-	}
-	// Check AU26 if it is not activated
-	if (ausActivations[15].activated == false) {
-		if (ausActivations[15].upperFlag == true) {
-			if (getTimeDiff(&ausActivations[15].upperTimestamp) <= ausActivations[15].ts) {
-				//INFO_STREAM("au01 " << getTimeDiff(&ausActivations[1].upperTimestamp));
-				if (ausDeriv[15] <= ausActivations[15].bottomThreshold) {
-					ausActivations[15].bottomFlag = true;
-					ausActivations[15].activated = true;
-					//INFO_STREAM("au01 bottom");
-				}
-			}
-			else {
-				//INFO_STREAM("au01 RESET");
-				ausActivations[15].upperFlag = false;
-				ausActivations[15].bottomFlag = false;
-			}
-		}
-		else if (ausActivations[15].upperFlag == false) {
-			// Detect upperThreshold derivative
-			if (ausDeriv[15] >= ausActivations[15].upperThreshold) {
-				ausActivations[15].upperFlag = true;
-				gettimeofday(&ausActivations[15].upperTimestamp, NULL);
-				//INFO_STREAM("au01 upper");
 			}
 		}
 	}
@@ -1200,35 +1200,26 @@ void checkAUsActiv() {
 
 // Detect if any facial expression has been detected
 void detectFacialExp() {
+	// EYEBROWS_UP (AU01)
 	if (ausActivations[0].activated) {
-		// SCARED
-		if (ausActivations[15].activated) {
-			INFO_STREAM("SCARED");
-			ausActivations[0].upperFlag = false;
-			ausActivations[0].bottomFlag = false;
-			ausActivations[0].activated = false;
-			ausActivations[15].upperFlag = false;
-			ausActivations[15].bottomFlag = false;
-			ausActivations[15].activated = false;
-		}
-		// EYEBROWS_UP
-		else {
-			INFO_STREAM("EYEBROWS_UP");
-			ausActivations[0].upperFlag = false;
-			ausActivations[0].bottomFlag = false;
-			ausActivations[0].activated = false;
-		}		
+		INFO_STREAM("EYEBROWS_UP");
+		ausActivations[0].upperFlag = false;
+		ausActivations[0].bottomFlag = false;
+		ausActivations[0].activated = false;
 	}
-	// BLINK
-	if (ausActivations[17].activated) {
+	// BLINK (AU45)
+	else if (ausActivations[17].activated) {
 		INFO_STREAM("BLINK");
 		ausActivations[17].upperFlag = false;
 		ausActivations[17].bottomFlag = false;
 		ausActivations[17].activated = false;
 	}
-	// SMILE
-	if (ausActivations[9].activated) {
+	// SMILE (AU06 and AU14)
+	else if (ausActivations[4].activated && ausActivations[9].activated) {
 		INFO_STREAM("SMILE");
+		ausActivations[4].upperFlag = false;
+		ausActivations[4].bottomFlag = false;
+		ausActivations[4].activated = false;
 		ausActivations[9].upperFlag = false;
 		ausActivations[9].bottomFlag = false;
 		ausActivations[9].activated = false;
