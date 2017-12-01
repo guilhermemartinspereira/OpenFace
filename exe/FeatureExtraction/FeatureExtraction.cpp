@@ -196,6 +196,17 @@ struct timezone {
 	int  tz_minuteswest; /* minutes W of Greenwich */
 	int  tz_dsttime;     /* type of dst correction */
 };
+// Struct for AUs activation used to detect facial expressions
+struct auActivation {
+	std::string name;		// Action Unit name
+	int ts;					// Maximum interval between upper and bottom threshold (AU derivative) for AU activation (milliseconds)
+	float upperThreshold;	// Upper threshold of AU derivative for its activation
+	float bottomThreshold;	// Bottom threshold of AU derivative for its activation
+	timeval upperTimestamp;	// Timestamp of upperThreshold activation
+	bool upperFlag;			// True if upperThreshold has been activated, false otherwise
+	bool bottomFlag;		// True if bottomThreshold has been activated, false otherwise
+	bool activated;			// True if upperThreshold and bottomThreshold has been activated with specified ts interval
+} ausActivations[SIZE_AUS];
 
 //------ FUNCTIONS ------
 // Update the YPR angles in radians
@@ -220,6 +231,8 @@ void updateAUsDerivMatrix();
 void updateAUsDeriv();
 // Write out the AUs values (classification, raw intensity, moving average of intensity, derivative) on the current image for real-time visualization
 void visualizeAUs(cv::Mat& captured_image, const LandmarkDetector::FaceModelParameters& det_parameters);
+// Check AUs activation based on their derivatives curve over time
+void checkAUsActiv();
 // Detect if any facial expression has been detected
 void detectFacialExp();
 /*Get the timestamp in seconds and microseconds
@@ -394,8 +407,40 @@ int main (int argc, char **argv)
 	gettimeofday(&tLast_EYEBROWS, NULL);
 	gettimeofday(&tLast_BLINK, NULL);
 	gettimeofday(&tInitial, NULL);
-	// Output file to analyse AU01 and AU02 in time
+	// Output file to analyze AUs in time (milliseconds)
 	std::ofstream outFile;
+	// Set default parameters of AUs activations fot facial expressions detection
+	ausActivations[0].name = "au01";
+	ausActivations[0].ts = 600;
+	ausActivations[0].upperThreshold = 5.5;
+	ausActivations[0].bottomThreshold = -5.5;
+	ausActivations[0].upperFlag = false;
+	ausActivations[0].bottomFlag = false;
+	ausActivations[0].activated = false;
+
+	ausActivations[4].name = "au06";
+	ausActivations[4].ts = 600;
+	ausActivations[4].upperThreshold = 3.5;
+	ausActivations[4].bottomThreshold = -3.5;
+	ausActivations[4].upperFlag = false;
+	ausActivations[4].bottomFlag = false;
+	ausActivations[4].activated = false;
+
+	ausActivations[9].name = "au14";
+	ausActivations[9].ts = 700;
+	ausActivations[9].upperThreshold = 3.5;
+	ausActivations[9].bottomThreshold = -3.5;
+	ausActivations[9].upperFlag = false;
+	ausActivations[9].bottomFlag = false;
+	ausActivations[9].activated = false;
+		
+	ausActivations[17].name = "au45";
+	ausActivations[17].ts = 600;
+	ausActivations[17].upperThreshold = 2.5;
+	ausActivations[17].bottomThreshold = -2.5;
+	ausActivations[17].upperFlag = false;
+	ausActivations[17].bottomFlag = false;
+	ausActivations[17].activated = false;
 	//===============================================
 		
 	while(!done) // this is not a for loop as we might also be reading from a webcam
@@ -681,6 +726,8 @@ int main (int argc, char **argv)
 			updateAUsDerivMatrix();
 			// Update the derivative of AUs moving average
 			updateAUsDeriv();
+			// Check AUs activations for facial expressions detections;
+			checkAUsActiv();
 			// Check if any facial expression has been detected
 			detectFacialExp();
 			// Output AUs data and timestamp in a text file for further analysis
@@ -1043,64 +1090,139 @@ void visualizeAUs(cv::Mat& captured_image, const LandmarkDetector::FaceModelPara
 	}
 }
 
-// Detect if any facial expression has been detected
-void detectFacialExp() {
-	// Get current timestamp
-	timeval tNow;
-	gettimeofday(&tNow, NULL);
-	// Calculate dt for EYEBROWS expression
-	dt_EYEBROWS = (tNow.tv_sec - tLast_EYEBROWS.tv_sec) * 1000;		// In ms
-	dt_EYEBROWS += (tNow.tv_usec - tLast_EYEBROWS.tv_usec) / 1000;	// In ms
-	// Calculate dt for BLINK expression
-	dt_BLINK = (tNow.tv_sec - tLast_BLINK.tv_sec) * 1000;			// In ms
-	dt_BLINK += (tNow.tv_usec - tLast_BLINK.tv_usec) / 1000;		// In ms
-	// If EYEBROWS up
-	/*if (ausRegMA[0] >= ausSS[0] * 3.0 && ausRegMA[1] >= ausSS[1] * 2.5 && dt_EYEBROWS >= 500) {*/
-	//if (ausRegMA[0] >= 2.7 && ausRegMA[1] >= 2.7 && dt_EYEBROWS >= 700) {
-	/*if (ausDeriv[0] >= 6.0 && ausDeriv[1] >= 6.0 && dt_EYEBROWS >= 700) {
-		INFO_STREAM("EYEBROWS_UP");
-		gettimeofday(&tLast_EYEBROWS, NULL);
-	}*/
-	
-	// Detect dMin derivative
-	if (dMax == 1) {
-		//INFO_STREAM(getTimeDiff(&tEyebrows));
-		if (getTimeDiff(&tEyebrows) <= 500) {
-			if (ausDeriv[0] <= -5.5) {
-				dMin = 1;
-				//INFO_STREAM("dMin = 1");
+// Check AUs activation based on their derivatives curve over time
+void checkAUsActiv() {
+	// Check AU01 if it is not activated
+	if (ausActivations[0].activated == false) {
+		if (ausActivations[0].upperFlag == true) {
+			if (getTimeDiff(&ausActivations[0].upperTimestamp) <= ausActivations[0].ts) {
+				//INFO_STREAM("au01 " << getTimeDiff(&ausActivations[1].upperTimestamp));
+				if (ausDeriv[0] <= ausActivations[0].bottomThreshold) {
+					ausActivations[0].bottomFlag = true;
+					ausActivations[0].activated = true;
+					//INFO_STREAM("au01 bottom");
+				}
+			}
+			else {
+				//INFO_STREAM("au01 RESET");
+				ausActivations[0].upperFlag = false;
+				ausActivations[0].bottomFlag = false;
 			}
 		}
-		else {
-			//INFO_STREAM("RESET dMax and dMin");
-			dMax = 0;
-			dMin = 0;
+		else if (ausActivations[0].upperFlag == false) {
+			// Detect upperThreshold derivative
+			if (ausDeriv[0] >= ausActivations[0].upperThreshold) {
+				ausActivations[0].upperFlag = true;
+				gettimeofday(&ausActivations[0].upperTimestamp, NULL);
+				//INFO_STREAM("au01 upper");
+			}
 		}
 	}
-	else if (dMax == 0) {
-		// Detect dMax derivative
-		if (ausDeriv[0] >= 5.5) {
-			dMax = 1;
-			gettimeofday(&tEyebrows, NULL);
-			//INFO_STREAM("dMax = 1");
+	// Check AU06 if it is not activated
+	if (ausActivations[4].activated == false) {
+		if (ausActivations[4].upperFlag == true) {
+			if (getTimeDiff(&ausActivations[4].upperTimestamp) <= ausActivations[4].ts) {
+				//INFO_STREAM("au01 " << getTimeDiff(&ausActivations[1].upperTimestamp));
+				if (ausDeriv[4] <= ausActivations[4].bottomThreshold) {
+					ausActivations[4].bottomFlag = true;
+					ausActivations[4].activated = true;
+					//INFO_STREAM("au01 bottom");
+				}
+			}
+			else {
+				//INFO_STREAM("au01 RESET");
+				ausActivations[4].upperFlag = false;
+				ausActivations[4].bottomFlag = false;
+			}
+		}
+		else if (ausActivations[4].upperFlag == false) {
+			// Detect upperThreshold derivative
+			if (ausDeriv[4] >= ausActivations[4].upperThreshold) {
+				ausActivations[4].upperFlag = true;
+				gettimeofday(&ausActivations[4].upperTimestamp, NULL);
+				//INFO_STREAM("au01 upper");
+			}
 		}
 	}
+	// Check AU14 if it is not activated
+	if (ausActivations[9].activated == false) {
+		if (ausActivations[9].upperFlag == true) {
+			if (getTimeDiff(&ausActivations[9].upperTimestamp) <= ausActivations[9].ts) {
+				//INFO_STREAM("au01 " << getTimeDiff(&ausActivations[1].upperTimestamp));
+				if (ausDeriv[9] <= ausActivations[9].bottomThreshold) {
+					ausActivations[9].bottomFlag = true;
+					ausActivations[9].activated = true;
+					//INFO_STREAM("au14 bottom");
+				}
+			}
+			else {
+				//INFO_STREAM("au01 RESET");
+				ausActivations[9].upperFlag = false;
+				ausActivations[9].bottomFlag = false;
+			}
+		}
+		else if (ausActivations[9].upperFlag == false) {
+			// Detect upperThreshold derivative
+			if (ausDeriv[9] >= ausActivations[9].upperThreshold) {
+				ausActivations[9].upperFlag = true;
+				gettimeofday(&ausActivations[9].upperTimestamp, NULL);
+				//INFO_STREAM("au14 upper");
+			}
+		}
+	}
+	// Check AU45 if it is not activated
+	if (ausActivations[17].activated == false) {
+		if (ausActivations[17].upperFlag == true) {
+			if (getTimeDiff(&ausActivations[17].upperTimestamp) <= ausActivations[17].ts) {
+				//INFO_STREAM("au01 " << getTimeDiff(&ausActivations[1].upperTimestamp));
+				if (ausDeriv[17] <= ausActivations[17].bottomThreshold) {
+					ausActivations[17].bottomFlag = true;
+					ausActivations[17].activated = true;
+					//INFO_STREAM("au01 bottom");
+				}
+			}
+			else {
+				//INFO_STREAM("au01 RESET");
+				ausActivations[17].upperFlag = false;
+				ausActivations[17].bottomFlag = false;
+			}
+		}
+		else if (ausActivations[17].upperFlag == false) {
+			// Detect upperThreshold derivative
+			if (ausDeriv[17] >= ausActivations[17].upperThreshold) {
+				ausActivations[17].upperFlag = true;
+				gettimeofday(&ausActivations[17].upperTimestamp, NULL);
+				//INFO_STREAM("au01 upper");
+			}
+		}
+	}
+}
 
-	if (dMax && dMin) {
+// Detect if any facial expression has been detected
+void detectFacialExp() {
+	// EYEBROWS_UP (AU01)
+	if (ausActivations[0].activated) {
 		INFO_STREAM("EYEBROWS_UP");
-		dMax = 0;
-		dMin = 0;
+		ausActivations[0].upperFlag = false;
+		ausActivations[0].bottomFlag = false;
+		ausActivations[0].activated = false;
 	}
-
-	/*if (ausDeriv[0] >= 6.0 && ausDeriv[1] >= 6.0 && dt_EYEBROWS >= 700) {
-	INFO_STREAM("EYEBROWS_UP");
-	gettimeofday(&tLast_EYEBROWS, NULL);
-	}*/
-	// If BLINK
-	//else if (ausClass[17] == 1 && ausRegMA[17] >= 1.8 && dt_BLINK >= 400) {
-	else if (ausDeriv[17] >= 3.5 && dt_BLINK >= 250) {		// Class value is not useful (fails in some cases)
+	// BLINK (AU45)
+	else if (ausActivations[17].activated) {
 		INFO_STREAM("BLINK");
-		gettimeofday(&tLast_BLINK, NULL);
+		ausActivations[17].upperFlag = false;
+		ausActivations[17].bottomFlag = false;
+		ausActivations[17].activated = false;
+	}
+	// SMILE (AU06 and AU14)
+	else if (ausActivations[4].activated && ausActivations[9].activated) {
+		INFO_STREAM("SMILE");
+		ausActivations[4].upperFlag = false;
+		ausActivations[4].bottomFlag = false;
+		ausActivations[4].activated = false;
+		ausActivations[9].upperFlag = false;
+		ausActivations[9].bottomFlag = false;
+		ausActivations[9].activated = false;
 	}
 }
 
