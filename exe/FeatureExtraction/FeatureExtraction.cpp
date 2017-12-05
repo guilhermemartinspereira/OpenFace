@@ -162,7 +162,7 @@ int64 t0 = 0;
 #define SIZE_AUS 18						// Number of AUs
 #define SIZE_MA 6						// Size of the moving average
 #define SIZE_D 4						// Size of derivative
-#define N_RECORDINGS					// Number of recordings per facial expression on calibration mode
+#define N_RECORDINGS 5					// Number of recordings per facial expression on calibration mode
 //------ GLOBALS ------
 // YPR angles in rad
 float yaw = 0;
@@ -207,15 +207,17 @@ struct auActivation {
 	bool activated;			// True if upperThreshold and bottomThreshold has been activated with specified ts interval
 } ausActivations[SIZE_AUS];
 // Calibration
-int nRecordings = 0;																			// Number of facial expressions already recorded
-int tsRecording = 3000;																			// Time of recording each expression
-std::vector<std::vector<float>> ausMaxDerivCalib(SIZE_AUS, std::vector<float>(N_RECORDINGS));	// Max AUS derivative values of all recordings
-std::vector<std::vector<float>> ausMinDerivCalib(SIZE_AUS, std::vector<float>(N_RECORDINGS));	// Min AUS derivative values of all recordings
-std::vector<std::vector<int>> calcTsAus(SIZE_AUS, std::vector<int>(5));		// Matrix with the ts for each AU
-std::vector<long> ausTimeCalib;												// Timestamps for the calibration records
-std::vector<std::vector<double>> ausDerivCalib(SIZE_AUS);					// Matrix with the recording of the AUs derivatives
+int idxRec = 0;																					// Index of facial expression recording 
+int tsRecording = 2000;																			// Recording time for each expression
+int tsWait = 1500;																				// Waiting time between recordings
+std::vector<std::vector<double>> ausDerivCalib(SIZE_AUS);										// Matrix with the recording of the AUs derivatives
+std::vector<long> timeRecording;																// Timestamps for the calibration records
+std::vector<std::vector<std::pair<double, long>>> ausMaxDerivCalib(SIZE_AUS, std::vector<std::pair<double, long>>(N_RECORDINGS));	// Max AUS derivative values of all recordings
+std::vector<std::vector<std::pair<double, long>>> ausMinDerivCalib(SIZE_AUS, std::vector<std::pair<double, long>>(N_RECORDINGS));	// Min AUS derivative values of all recordings
+std::vector<std::vector<long>> ausTsCalib(SIZE_AUS, std::vector<long>(N_RECORDINGS));			// Matrix with the ts for each AU
 bool isRecording = false;
-timeval tRecording;
+bool isWaiting = false;
+timeval tRecording, tWait;
 
 
 //------ FUNCTIONS ------
@@ -254,8 +256,13 @@ int gettimeofday(struct timeval *tv, struct timezone *tz);
 long getTimeDiff(struct timeval *tvRef);
 // Output to a text file with AUs MA values, derivatives and timestamps (in milliseconds) for offline analysis 
 void outputAUsData(std::ofstream* outFile);
+// Get max value and timestamp in (milliseconds) from vector containing AU recordings for calibration
+std::pair<double, long> getMaxFromVector(const std::vector<double>& auDerivCalib, const std::vector<long> timeRecording);
+// Get min value and timestamp in (milliseconds) from vector containing AU recordings for calibration
+std::pair<double, long> getMinFromVector(const std::vector<double>& auDerivCalib, const std::vector<long> timeRecording);
 // Calibration process
-void calibrationProcess(json &configFile, std::string &calibStatus, cv::Mat& captured_image, const LandmarkDetector::FaceModelParameters& det_parameters);
+void calibrationProcess(json &calibParams, const std::string &calibFileName, std::string &calibStatus, cv::Mat& captured_image,
+	const LandmarkDetector::FaceModelParameters& det_parameters);
 //===============================================
 
 
@@ -417,42 +424,33 @@ int main (int argc, char **argv)
 		getline(cin, userName);
 		calibFileName = userName + calibFileName;
 		calibParams = {
-			{ "userName", "name" },
+			{ "userName", userName },
 			{ "AU01",{
-				{ "upperThreshold", 0 },
-				{ "bottomThreshold", 0 },
+				{ "upperThreshold", 0.0 },
+				{ "bottomThreshold", 0.0 },
 				{ "ts" , 0 }
 			} },
 			{ "AU06",{
-				{ "upperThreshold", 0 },
-				{ "bottomThreshold", 0 },
+				{ "upperThreshold", 0.0 },
+				{ "bottomThreshold", 0.0 },
 				{ "ts" , 0 }
 			} },
 			{ "AU14",{
-				{ "upperThreshold", 0 },
-				{ "bottomThreshold", 0 },
+				{ "upperThreshold", 0.0 },
+				{ "bottomThreshold", 0.0 },
 				{ "ts" , 0 }
 			} },
 			{ "AU45",{
-				{ "upperThreshold", 0 },
-				{ "bottomThreshold", 0 },
+				{ "upperThreshold", 0.0 },
+				{ "bottomThreshold", 0.0 },
 				{ "ts" , 0 }
 			} }
 		};
 		// write JSON to configuration file
-		std::ofstream out(calibFileName);
+		/*std::ofstream out(calibFileName);
 		out << std::setw(4) << calibParams << std::endl;
 		std::cout << "Calibration file has been initialized as " << calibFileName << endl;
-		INFO_STREAM("Press ENTER to start calibration...");
-		
-		// read a JSON file
-		/*std::ifstream i("pretty.json");
-		json j2;
-		i >> j2;
-		float a = j2["pi"];
-		std::string s = j2["object"]["currency"];
-		float v = j2["object"]["value"];
-		std::cout << a << " " << s << " " << v << endl*/
+		INFO_STREAM("Press ENTER to start calibration...");*/
 	}
 	//===============================================
 
@@ -802,7 +800,7 @@ int main (int argc, char **argv)
 			}
 			//Calibration process
 			if (calibration_mode && startCalib) {
-				calibrationProcess(calibParams, calibStatus);
+				calibrationProcess(calibParams, calibFileName, calibStatus, captured_image, det_parameters);				
 			}
 			else {
 				// Check AUs activations for facial expressions detections;
@@ -1387,44 +1385,131 @@ void outputAUsData(std::ofstream* outFile) {
 	outFile->close();
 }
 
-// Calibration process
-void calibrationProcess(json &configFile, std::string &calibStatus, cv::Mat& captured_image, 
-	const LandmarkDetector::FaceModelParameters& det_parameters) {
-	if (calibStatus.compare("EYEBROWS_UP") == 0) {
-		// Set the initial timestamp for the expression
-		if (isRecording == false) {
-			gettimeofday(&tRecording, NULL);
-			isRecording = true;
+// Get max value and timestamp in (milliseconds) from vector containing AU recordings for calibration
+std::pair<double, long> getMaxFromVector(const std::vector<double>& auDerivCalib, const std::vector<long> timeRecording) {
+	double max = auDerivCalib[0];
+	long t = timeRecording[0]; 
+	std::pair<double, long> maxValueAndTime(max, t);
+	// Sweep the vector of the AU derivatives to get the max
+	if (auDerivCalib.size() == timeRecording.size()) {
+		for (int i = 1; i < auDerivCalib.size(); i++) {
+			if (auDerivCalib[i] > maxValueAndTime.first) {
+				maxValueAndTime.first = auDerivCalib[i];		// Update max derivative value
+				maxValueAndTime.second = timeRecording[i];		// Update time of max derivative occurrency
+			}
 		}
-		else {
-			if (getTimeDiff(&tRecording) <= tsRecording) {
-				// Print the recording message
-				visualizeCalibFlag(captured_image, det_parameters, "EYEBROWS_UP");
-				// Save the AU derivative and timestamp for further analysis	
-				ausDerivCalib[0].push_back(ausDeriv[0]);
-				ausTimeCalib.push_back(getTimeDiff(&tRecording));
+	}
+	else {
+		INFO_STREAM("Size mismatch of vectors auDerivCalib and timeRecording");
+	}
+	return maxValueAndTime;
+}
+
+// Get min value and timestamp in (milliseconds) from vector containing AU recordings for calibration
+std::pair<double, long> getMinFromVector(const std::vector<double>& auDerivCalib, const std::vector<long> timeRecording) {
+	double min = auDerivCalib[0];
+	long t = timeRecording[0];
+	std::pair<double, long> minValueAndTime(min, t);
+	// Sweep the vector of the AU derivatives to get the min
+	if (auDerivCalib.size() == timeRecording.size()) {
+		for (int i = 1; i < auDerivCalib.size(); i++) {
+			if (auDerivCalib[i] < minValueAndTime.first) {
+				minValueAndTime.first = auDerivCalib[i];		// Update min derivative value
+				minValueAndTime.second = timeRecording[i];		// Update time of min derivative occurrency
+			}
+		}
+	}
+	else {
+		INFO_STREAM("Size mismatch of vectors auDerivCalib and timeRecording");
+	}
+	return minValueAndTime;
+}
+
+// Calibration process
+void calibrationProcess(json &calibParams, const std::string &calibFileName, std::string &calibStatus, cv::Mat& captured_image, 
+	const LandmarkDetector::FaceModelParameters& det_parameters) {
+	// EYEBROWS_UP calibration
+	if (calibStatus.compare("EYEBROWS_UP") == 0) {
+		// Waiting some time between facial expressions recording
+		if (isWaiting) {
+			if (getTimeDiff(&tWait) >= tsWait) {
+				isWaiting = false;
+			}
+		}
+		else if (idxRec < N_RECORDINGS) {
+			// Set the initial timestamp for the expression recording
+			if (isRecording == false) {
+				gettimeofday(&tRecording, NULL);
+				isRecording = true;
 			}
 			else {
-				int upperThreshold = getMat
+				// Recording 
+				if (getTimeDiff(&tRecording) <= tsRecording) {
+					// Print the recording message
+					visualizeCalibFlag(captured_image, det_parameters, "EYEBROWS_UP");
+					// Save the AU derivative and timestamp for further analysis	
+					ausDerivCalib[0].push_back(ausDeriv[0]);			// AU01 derivative
+					timeRecording.push_back(getTimeDiff(&tRecording));
+				}
+				// Saving data
+				else {
+					isRecording = false;
+					// Set waiting timeval referent
+					gettimeofday(&tWait, NULL);
+					isWaiting = true;
+					// Get the max value and time of AU recording
+					std::pair<double, long> maxValueAndTime = getMaxFromVector(ausDerivCalib[0], timeRecording);
+					ausMaxDerivCalib[0][idxRec] = maxValueAndTime;
+					// Get the min value and time of AU recording
+					std::pair<double, long> minValueAndTime = getMinFromVector(ausDerivCalib[0], timeRecording);
+					ausMinDerivCalib[0][idxRec] = minValueAndTime;
+					// Update the ts (in milliseconds) between the max and min derivative values
+					ausTsCalib[0][idxRec] = minValueAndTime.second - maxValueAndTime.second;
+					// Clear variables for next recording
+					ausDerivCalib[0].clear();
+					timeRecording.clear();
+
+					idxRec++;
+				}
 			}
 		}
-
-		// If reading data
-		if (nCalibExpressions != 0) {
-			if (calibStatus.compare("COLLECTING") == 0) {
-				timeval
-
+		// Processing data and saving calibration parameters
+		if (idxRec == N_RECORDINGS) {
+			idxRec = 0;
+			// Select min of max values for upperThreshold
+			float upperThreshold = ausMaxDerivCalib[0][0].first;
+			for (int i = 1; i < ausMaxDerivCalib[0].size(); i++) {
+				upperThreshold = ausMaxDerivCalib[0][i].first < upperThreshold ? ausMaxDerivCalib[0][i].first : upperThreshold;
 			}
-			nCalibExpressions--;
-		}
-			// Read one expression
-				// Save max, min, period
-		if(expressionCalib)
+			// Select max of min values for bottomThreshold
+			float bottomThreshold = ausMinDerivCalib[0][0].first;
+			for (int i = 1; i < ausMinDerivCalib[0].size(); i++) {
+				bottomThreshold = ausMinDerivCalib[0][i].first > bottomThreshold ? ausMinDerivCalib[0][i].first : bottomThreshold;
+			}
+			// Select longest period ts between max and min derivative values
+			int ts = (int)ausTsCalib[0][0];
+			for (int i = 1; i < ausTsCalib[0].size(); i++) {
+				ts = ausTsCalib[0][i] > ts ? ausTsCalib[0][i] : ts;
+			}
+			// Write parameters on json object
+			calibParams["AU01"]["upperThreshold"] = upperThreshold;
+			calibParams["AU01"]["bottomThreshold"] = bottomThreshold;
+			calibParams["AU01"]["ts"] = ts;
+			// Export json configuration to file
+			std::ofstream out(calibFileName);
+			out << std::setw(4) << calibParams << std::endl;
+			calibStatus = "FINISHED";
+			INFO_STREAM("Calibration has been finished");
 
-		// Select max
-		// Select min
-		// Select longest period
-		// Update json file
+			//// read a JSON file
+			//std::ifstream i("pretty.json");
+			//json j2;
+			//i >> j2;
+			//float a = j2["pi"];
+			//std::string s = j2["object"]["currency"];
+			//float v = j2["object"]["value"];
+			//std::cout << a << " " << s << " " << v << endl
+		}
 	}
 }
 //==============================================
