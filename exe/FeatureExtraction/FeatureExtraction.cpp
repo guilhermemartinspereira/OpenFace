@@ -207,6 +207,9 @@ struct auActivation {
 	bool activated;			// True if upperThreshold and bottomThreshold has been activated with specified ts interval
 } ausActivations[SIZE_AUS];
 // Calibration process
+std::string userName;
+std::string calibFileName;
+json calibParams;
 int idxRec = 0;																			// Index of facial expression recording 
 int tsRecording = 2000;																	// Recording time for each expression
 int tsWait = 1500;																		// Waiting time between recordings
@@ -218,8 +221,7 @@ std::vector<std::vector<long>> ausTsCalib(SIZE_AUS, std::vector<long>(N_RECORDIN
 std::string expCalib("EYEBROWS_UP");													// Facial expression to start calibration or been calibrated at the moment
 bool isRecording = false;
 bool isWaiting = false;
-bool startCalib = false;																// Start calibration flag 		
-//bool isCalibFinished = false;
+bool isCalibrating = false;																// Start calibration flag 		
 timeval tRecording, tWait;
 
 
@@ -263,6 +265,8 @@ void outputAUsData(std::ofstream* outFile);
 std::pair<double, long> getMaxFromVector(const std::vector<double>& auDerivCalib, const std::vector<long> timeRecording);
 // Get min value and timestamp in (milliseconds) from vector containing AU recordings for calibration
 std::pair<double, long> getMinFromVector(const std::vector<double>& auDerivCalib, const std::vector<long> timeRecording);
+// Calibration initialization to get username and create or modify calibration file
+void calibrationInit(std::string &userName, json &calibParams);
 // Calibration process
 void calibrationProcess(json &calibParams, const std::string &calibFileName, cv::Mat& captured_image,
 	const LandmarkDetector::FaceModelParameters& det_parameters);
@@ -408,49 +412,49 @@ int main (int argc, char **argv)
 
 	//================== Guilherme ==================	
 	bool calibration_enabled = false;						// Flag to start calibration process and save the parameters in a json file
-	std::string userName;
+	/*std::string userName;
 	std::string calibFileName = "CalibParams.json";
-	json calibParams;
+	json calibParams;*/
 	//===============================================
 
 	get_output_feature_params(output_similarity_align, output_hog_align_files, visualize_track, visualize_align, visualize_hog,
 		output_2D_landmarks, output_3D_landmarks, output_model_params, output_pose, output_AUs, output_gaze, calibration_enabled, arguments);
 
 	//================== Guilherme ==================
-	if (calibration_enabled) {
-		// Calibration file name and json file initialization
-		INFO_STREAM("CALIBRATION MODE.\nPlease enter the user name:");
-		getline(cin, userName);
-		calibFileName = userName + calibFileName;
-		calibParams = {
-			{ "userName", userName },
-			{ "AU01",{
-				{ "upperThreshold", 0.0 },
-				{ "bottomThreshold", 0.0 },
-				{ "ts" , 0 }
-			} },
-			{ "AU06",{
-				{ "upperThreshold", 0.0 },
-				{ "bottomThreshold", 0.0 },
-				{ "ts" , 0 }
-			} },
-			{ "AU14",{
-				{ "upperThreshold", 0.0 },
-				{ "bottomThreshold", 0.0 },
-				{ "ts" , 0 }
-			} },
-			{ "AU45",{
-				{ "upperThreshold", 0.0 },
-				{ "bottomThreshold", 0.0 },
-				{ "ts" , 0 }
-			} }
-		};
-		// write JSON to configuration file
-		/*std::ofstream out(calibFileName);
-		out << std::setw(4) << calibParams << std::endl;
-		std::cout << "Calibration file has been initialized as " << calibFileName << endl;
-		INFO_STREAM("Press ENTER to start calibration...");*/
-	}
+	//if (calibration_enabled) {
+	//	// Calibration file name and json file initialization
+	//	INFO_STREAM("CALIBRATION MODE.\nPlease enter the user name:");
+	//	getline(cin, userName);
+	//	calibFileName = userName + calibFileName;
+	//	calibParams = {
+	//		{ "userName", userName },
+	//		{ "AU01",{
+	//			{ "upperThreshold", 0.0 },
+	//			{ "bottomThreshold", 0.0 },
+	//			{ "ts" , 0 }
+	//		} },
+	//		{ "AU06",{
+	//			{ "upperThreshold", 0.0 },
+	//			{ "bottomThreshold", 0.0 },
+	//			{ "ts" , 0 }
+	//		} },
+	//		{ "AU14",{
+	//			{ "upperThreshold", 0.0 },
+	//			{ "bottomThreshold", 0.0 },
+	//			{ "ts" , 0 }
+	//		} },
+	//		{ "AU45",{
+	//			{ "upperThreshold", 0.0 },
+	//			{ "bottomThreshold", 0.0 },
+	//			{ "ts" , 0 }
+	//		} }
+	//	};
+	//	// write JSON to configuration file
+	//	/*std::ofstream out(calibFileName);
+	//	out << std::setw(4) << calibParams << std::endl;
+	//	std::cout << "Calibration file has been initialized as " << calibFileName << endl;
+	//	INFO_STREAM("Press ENTER to start calibration...");*/
+	//}
 	//===============================================
 
 	// If multiple video files are tracked, use this to indicate if we are done
@@ -793,8 +797,8 @@ int main (int argc, char **argv)
 			updateAUsDerivMatrix();
 			// Update the derivative of AUs moving average
 			updateAUsDeriv();
-			//Calibration process
-			if (calibration_enabled && startCalib) {
+			// Calibration process 
+			if (calibration_enabled && isCalibrating) {
 				calibrationProcess(calibParams, calibFileName, captured_image, det_parameters);				
 			}
 			else {
@@ -864,11 +868,14 @@ int main (int argc, char **argv)
 				// Start calibration process (Guilherme)
 				else if (character_press == 'c') {
 					if (calibration_enabled) {
+						// Restart the tracker
+						face_model.Reset();
+						// Initialize the calibration process
+						calibrationInit(userName, calibParams);
 						gettimeofday(&tWait, NULL);
 						isWaiting = true;
-						startCalib = true;
-						//isCalibFinished = false;
-						INFO_STREAM("Starting calibration process...");
+						isCalibrating = true;
+						INFO_STREAM("Calibration process has been initialized...");
 					}
 				}
 				// quit the application
@@ -1430,11 +1437,41 @@ std::pair<double, long> getMinFromVector(const std::vector<double>& auDerivCalib
 	return minValueAndTime;
 }
 
+// Calibration initialization to get username and create or modify calibration file
+void calibrationInit(std::string &userName, json &calibParams) {
+	INFO_STREAM("CALIBRATION MODE.\nPlease enter the user name:");
+	getline(cin, userName);
+	calibFileName = "calibParams_" + userName+ ".json";
+	// json file initialization
+	calibParams = {
+		{ "userName", userName },
+		{ "AU01",{
+			{ "upperThreshold", 0.0 },
+			{ "bottomThreshold", 0.0 },
+			{ "ts" , 0 }
+		} },
+		{ "AU06",{
+			{ "upperThreshold", 0.0 },
+			{ "bottomThreshold", 0.0 },
+			{ "ts" , 0 }
+		} },
+		{ "AU14",{
+			{ "upperThreshold", 0.0 },
+			{ "bottomThreshold", 0.0 },
+			{ "ts" , 0 }
+		} },
+		{ "AU45",{
+			{ "upperThreshold", 0.0 },
+			{ "bottomThreshold", 0.0 },
+			{ "ts" , 0 }
+		} }
+	};
+}
+
 // Calibration process
 void calibrationProcess(json &calibParams, const std::string &calibFileName, cv::Mat& captured_image,
 	const LandmarkDetector::FaceModelParameters& det_parameters) {
 	
-	//if (isCalibFinished == false) {
 		// Waiting some time between facial expressions recording
 		if (isWaiting) {
 			if (getTimeDiff(&tWait) >= tsWait) {
@@ -1507,12 +1544,10 @@ void calibrationProcess(json &calibParams, const std::string &calibFileName, cv:
 				std::ofstream out(calibFileName);
 				out << std::setw(4) << calibParams << std::endl;
 				// Finish calibration process
-				startCalib = false;
+				isCalibrating = false;
 				expCalib = "EYEBROWS_UP";		// Set the first facial expression to start with next calibration 
-				//expCalib = "FINISHED";
-				//isCalibFinished = true;
-				INFO_STREAM("Calibration has been finished");
-
+				INFO_STREAM("Calibration has been finished and saved to " << calibFileName);
+				
 				//// read a JSON file
 				//std::ifstream i("pretty.json");
 				//json j2;
