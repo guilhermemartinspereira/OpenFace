@@ -146,7 +146,7 @@ void create_directory(string output_path)
 
 void get_output_feature_params(vector<string> &output_similarity_aligned, vector<string> &output_hog_aligned_files, bool& visualize_track,
 	bool& visualize_align, bool& visualize_hog, bool &output_2D_landmarks, bool &output_3D_landmarks, bool &output_model_params,
-	bool &output_pose, bool &output_AUs, bool &output_gaze, bool &calibration_mode, vector<string> &arguments);
+	bool &output_pose, bool &output_AUs, bool &output_gaze, bool &calibration_enabled, vector<string> &arguments);
 
 void get_image_input_output_params_feats(vector<vector<string> > &input_image_files, bool& as_video, vector<string> &arguments);
 
@@ -206,17 +206,20 @@ struct auActivation {
 	bool bottomFlag;		// True if bottomThreshold has been activated, false otherwise
 	bool activated;			// True if upperThreshold and bottomThreshold has been activated with specified ts interval
 } ausActivations[SIZE_AUS];
-// Calibration
-int idxRec = 0;																					// Index of facial expression recording 
-int tsRecording = 2000;																			// Recording time for each expression
-int tsWait = 1500;																				// Waiting time between recordings
-std::vector<std::vector<double>> ausDerivCalib(SIZE_AUS);										// Matrix with the recording of the AUs derivatives
-std::vector<long> timeRecording;																// Timestamps for the calibration records
+// Calibration process
+int idxRec = 0;																			// Index of facial expression recording 
+int tsRecording = 2000;																	// Recording time for each expression
+int tsWait = 1500;																		// Waiting time between recordings
+std::vector<std::vector<double>> ausDerivCalib(SIZE_AUS);								// Matrix with the recording of the AUs derivatives
+std::vector<long> timeRecording;														// Timestamps for the calibration records
 std::vector<std::vector<std::pair<double, long>>> ausMaxDerivCalib(SIZE_AUS, std::vector<std::pair<double, long>>(N_RECORDINGS));	// Max AUS derivative values of all recordings
 std::vector<std::vector<std::pair<double, long>>> ausMinDerivCalib(SIZE_AUS, std::vector<std::pair<double, long>>(N_RECORDINGS));	// Min AUS derivative values of all recordings
-std::vector<std::vector<long>> ausTsCalib(SIZE_AUS, std::vector<long>(N_RECORDINGS));			// Matrix with the ts for each AU
+std::vector<std::vector<long>> ausTsCalib(SIZE_AUS, std::vector<long>(N_RECORDINGS));	// Matrix with the ts for each AU
+std::string expCalib("EYEBROWS_UP");													// Facial expression to start calibration or been calibrated at the moment
 bool isRecording = false;
 bool isWaiting = false;
+bool startCalib = false;																// Start calibration flag 		
+//bool isCalibFinished = false;
 timeval tRecording, tWait;
 
 
@@ -261,7 +264,7 @@ std::pair<double, long> getMaxFromVector(const std::vector<double>& auDerivCalib
 // Get min value and timestamp in (milliseconds) from vector containing AU recordings for calibration
 std::pair<double, long> getMinFromVector(const std::vector<double>& auDerivCalib, const std::vector<long> timeRecording);
 // Calibration process
-void calibrationProcess(json &calibParams, const std::string &calibFileName, std::string &calibStatus, cv::Mat& captured_image,
+void calibrationProcess(json &calibParams, const std::string &calibFileName, cv::Mat& captured_image,
 	const LandmarkDetector::FaceModelParameters& det_parameters);
 //===============================================
 
@@ -404,21 +407,17 @@ int main (int argc, char **argv)
 	bool visualize_hog = false;
 
 	//================== Guilherme ==================	
-	bool calibration_mode = false;						// Flag to start calibration process and save the parameters in a json file
+	bool calibration_enabled = false;						// Flag to start calibration process and save the parameters in a json file
 	std::string userName;
 	std::string calibFileName = "CalibParams.json";
 	json calibParams;
-	// Start calibration flag 
-	bool startCalib = false;
-	// Calibration status
-	std::string calibStatus("EYEBROWS_UP");
 	//===============================================
 
 	get_output_feature_params(output_similarity_align, output_hog_align_files, visualize_track, visualize_align, visualize_hog,
-		output_2D_landmarks, output_3D_landmarks, output_model_params, output_pose, output_AUs, output_gaze, calibration_mode, arguments);
+		output_2D_landmarks, output_3D_landmarks, output_model_params, output_pose, output_AUs, output_gaze, calibration_enabled, arguments);
 
 	//================== Guilherme ==================
-	if (calibration_mode) {
+	if (calibration_enabled) {
 		// Calibration file name and json file initialization
 		INFO_STREAM("CALIBRATION MODE.\nPlease enter the user name:");
 		getline(cin, userName);
@@ -794,13 +793,9 @@ int main (int argc, char **argv)
 			updateAUsDerivMatrix();
 			// Update the derivative of AUs moving average
 			updateAUsDeriv();
-			// Enable calibration start after certain time
-			if (getTimeDiff(&tInitial) > 3000) {
-				startCalib = true;
-			}
 			//Calibration process
-			if (calibration_mode && startCalib) {
-				calibrationProcess(calibParams, calibFileName, calibStatus, captured_image, det_parameters);				
+			if (calibration_enabled && startCalib) {
+				calibrationProcess(calibParams, calibFileName, captured_image, det_parameters);				
 			}
 			else {
 				// Check AUs activations for facial expressions detections;
@@ -862,9 +857,19 @@ int main (int argc, char **argv)
 					face_model.Reset();
 				}
 				// Set zero ref for YPR angles (Guilherme)
-				if (character_press == 's') {
+				else if (character_press == 's') {
 					setZeroRefYPR();
 					INFO_STREAM("YPR zero reference has been set...");
+				}
+				// Start calibration process (Guilherme)
+				else if (character_press == 'c') {
+					if (calibration_enabled) {
+						gettimeofday(&tWait, NULL);
+						isWaiting = true;
+						startCalib = true;
+						//isCalibFinished = false;
+						INFO_STREAM("Starting calibration process...");
+					}
 				}
 				// quit the application
 				else if(character_press=='q')
@@ -1170,8 +1175,8 @@ void visualizeAUs(cv::Mat& captured_image, const LandmarkDetector::FaceModelPara
 
 // Visualize facial expression signal for calibration
 void visualizeCalibFlag(cv::Mat& captured_image, const LandmarkDetector::FaceModelParameters& det_parameters, std::string facialExp) {
-	int xPos = 370;
-	int yPos = 100;
+	int xPos = 400;
+	int yPos = 40;
 	std::string calibMessage = "RECORDING " + facialExp;
 	cv::putText(captured_image, calibMessage, cv::Point(xPos, yPos), CV_FONT_HERSHEY_SIMPLEX, 0.5, CV_RGB(255, 0, 0), 1, CV_AA);
 	// Display the image with the calibration message
@@ -1426,91 +1431,99 @@ std::pair<double, long> getMinFromVector(const std::vector<double>& auDerivCalib
 }
 
 // Calibration process
-void calibrationProcess(json &calibParams, const std::string &calibFileName, std::string &calibStatus, cv::Mat& captured_image, 
+void calibrationProcess(json &calibParams, const std::string &calibFileName, cv::Mat& captured_image,
 	const LandmarkDetector::FaceModelParameters& det_parameters) {
-	// EYEBROWS_UP calibration
-	if (calibStatus.compare("EYEBROWS_UP") == 0) {
+	
+	//if (isCalibFinished == false) {
 		// Waiting some time between facial expressions recording
 		if (isWaiting) {
 			if (getTimeDiff(&tWait) >= tsWait) {
 				isWaiting = false;
 			}
 		}
-		else if (idxRec < N_RECORDINGS) {
-			// Set the initial timestamp for the expression recording
-			if (isRecording == false) {
-				gettimeofday(&tRecording, NULL);
-				isRecording = true;
-			}
-			else {
-				// Recording 
-				if (getTimeDiff(&tRecording) <= tsRecording) {
-					// Print the recording message
-					visualizeCalibFlag(captured_image, det_parameters, "EYEBROWS_UP");
-					// Save the AU derivative and timestamp for further analysis	
-					ausDerivCalib[0].push_back(ausDeriv[0]);			// AU01 derivative
-					timeRecording.push_back(getTimeDiff(&tRecording));
+		// EYEBROWS_UP calibration
+		else if (expCalib.compare("EYEBROWS_UP") == 0) {
+
+			if (idxRec < N_RECORDINGS) {
+				if (isRecording) {
+					// Recording 
+					if (getTimeDiff(&tRecording) <= tsRecording) {
+						// Print the recording message
+						visualizeCalibFlag(captured_image, det_parameters, "EYEBROWS_UP");
+						// Save the AU derivative and timestamp for further analysis	
+						ausDerivCalib[0].push_back(ausDeriv[0]);			// AU01 derivative
+						timeRecording.push_back(getTimeDiff(&tRecording));
+					}
+					// Saving data
+					else {
+						isRecording = false;
+						// Set waiting timeval reference
+						gettimeofday(&tWait, NULL);
+						isWaiting = true;
+						// Get the max value and time of AU recording
+						std::pair<double, long> maxValueAndTime = getMaxFromVector(ausDerivCalib[0], timeRecording);
+						ausMaxDerivCalib[0][idxRec] = maxValueAndTime;
+						// Get the min value and time of AU recording
+						std::pair<double, long> minValueAndTime = getMinFromVector(ausDerivCalib[0], timeRecording);
+						ausMinDerivCalib[0][idxRec] = minValueAndTime;
+						// Update the ts (in milliseconds) between the max and min derivative values
+						ausTsCalib[0][idxRec] = minValueAndTime.second - maxValueAndTime.second;
+						// Clear variables for next recording
+						ausDerivCalib[0].clear();
+						timeRecording.clear();
+
+						idxRec++;
+					}
 				}
-				// Saving data
 				else {
-					isRecording = false;
-					// Set waiting timeval referent
-					gettimeofday(&tWait, NULL);
-					isWaiting = true;
-					// Get the max value and time of AU recording
-					std::pair<double, long> maxValueAndTime = getMaxFromVector(ausDerivCalib[0], timeRecording);
-					ausMaxDerivCalib[0][idxRec] = maxValueAndTime;
-					// Get the min value and time of AU recording
-					std::pair<double, long> minValueAndTime = getMinFromVector(ausDerivCalib[0], timeRecording);
-					ausMinDerivCalib[0][idxRec] = minValueAndTime;
-					// Update the ts (in milliseconds) between the max and min derivative values
-					ausTsCalib[0][idxRec] = minValueAndTime.second - maxValueAndTime.second;
-					// Clear variables for next recording
-					ausDerivCalib[0].clear();
-					timeRecording.clear();
-
-					idxRec++;
+					// Set the initial timestamp reference for the facial expression recording
+					gettimeofday(&tRecording, NULL);
+					isRecording = true;
 				}
 			}
-		}
-		// Processing data and saving calibration parameters
-		if (idxRec == N_RECORDINGS) {
-			idxRec = 0;
-			// Select min of max values for upperThreshold
-			float upperThreshold = ausMaxDerivCalib[0][0].first;
-			for (int i = 1; i < ausMaxDerivCalib[0].size(); i++) {
-				upperThreshold = ausMaxDerivCalib[0][i].first < upperThreshold ? ausMaxDerivCalib[0][i].first : upperThreshold;
-			}
-			// Select max of min values for bottomThreshold
-			float bottomThreshold = ausMinDerivCalib[0][0].first;
-			for (int i = 1; i < ausMinDerivCalib[0].size(); i++) {
-				bottomThreshold = ausMinDerivCalib[0][i].first > bottomThreshold ? ausMinDerivCalib[0][i].first : bottomThreshold;
-			}
-			// Select longest period ts between max and min derivative values
-			int ts = (int)ausTsCalib[0][0];
-			for (int i = 1; i < ausTsCalib[0].size(); i++) {
-				ts = ausTsCalib[0][i] > ts ? ausTsCalib[0][i] : ts;
-			}
-			// Write parameters on json object
-			calibParams["AU01"]["upperThreshold"] = upperThreshold;
-			calibParams["AU01"]["bottomThreshold"] = bottomThreshold;
-			calibParams["AU01"]["ts"] = ts;
-			// Export json configuration to file
-			std::ofstream out(calibFileName);
-			out << std::setw(4) << calibParams << std::endl;
-			calibStatus = "FINISHED";
-			INFO_STREAM("Calibration has been finished");
+			// Processing data and saving calibration parameters
+			else if (idxRec == N_RECORDINGS) {
+				idxRec = 0;
+				// Select min of max values for upperThreshold
+				float upperThreshold = ausMaxDerivCalib[0][0].first;
+				for (int i = 1; i < ausMaxDerivCalib[0].size(); i++) {
+					upperThreshold = ausMaxDerivCalib[0][i].first < upperThreshold ? ausMaxDerivCalib[0][i].first : upperThreshold;
+				}
+				// Select max of min values for bottomThreshold
+				float bottomThreshold = ausMinDerivCalib[0][0].first;
+				for (int i = 1; i < ausMinDerivCalib[0].size(); i++) {
+					bottomThreshold = ausMinDerivCalib[0][i].first > bottomThreshold ? ausMinDerivCalib[0][i].first : bottomThreshold;
+				}
+				// Select longest period ts between max and min derivative values
+				int ts = (int)ausTsCalib[0][0];
+				for (int i = 1; i < ausTsCalib[0].size(); i++) {
+					ts = ausTsCalib[0][i] > ts ? ausTsCalib[0][i] : ts;
+				}
+				// Write parameters on json object
+				calibParams["AU01"]["upperThreshold"] = upperThreshold;
+				calibParams["AU01"]["bottomThreshold"] = bottomThreshold;
+				calibParams["AU01"]["ts"] = ts;
+				// Export json configuration to file
+				std::ofstream out(calibFileName);
+				out << std::setw(4) << calibParams << std::endl;
+				// Finish calibration process
+				startCalib = false;
+				expCalib = "EYEBROWS_UP";		// Set the first facial expression to start with next calibration 
+				//expCalib = "FINISHED";
+				//isCalibFinished = true;
+				INFO_STREAM("Calibration has been finished");
 
-			//// read a JSON file
-			//std::ifstream i("pretty.json");
-			//json j2;
-			//i >> j2;
-			//float a = j2["pi"];
-			//std::string s = j2["object"]["currency"];
-			//float v = j2["object"]["value"];
-			//std::cout << a << " " << s << " " << v << endl
+				//// read a JSON file
+				//std::ifstream i("pretty.json");
+				//json j2;
+				//i >> j2;
+				//float a = j2["pi"];
+				//std::string s = j2["object"]["currency"];
+				//float v = j2["object"]["value"];
+				//std::cout << a << " " << s << " " << v << endl
+			}
 		}
-	}
+	//}
 }
 //==============================================
 
@@ -1683,7 +1696,7 @@ void outputAllFeatures(std::ofstream* output_file, bool output_2D_landmarks, boo
 
 void get_output_feature_params(vector<string> &output_similarity_aligned, vector<string> &output_hog_aligned_files, bool& visualize_track, 
 	bool& visualize_align, bool& visualize_hog, bool &output_2D_landmarks, bool &output_3D_landmarks, bool &output_model_params, 
-	bool &output_pose, bool &output_AUs, bool &output_gaze, bool &calibration_mode, vector<string> &arguments)
+	bool &output_pose, bool &output_AUs, bool &output_gaze, bool &calibration_enabled, vector<string> &arguments)
 {
 	output_similarity_aligned.clear();
 	output_hog_aligned_files.clear();
@@ -1789,7 +1802,7 @@ void get_output_feature_params(vector<string> &output_similarity_aligned, vector
 		}
 		//================== Guilherme ==================
 		else if (arguments[i].compare("-calib") == 0) {
-			calibration_mode = true;
+			calibration_enabled = true;
 			valid[i] = false;
 		}
 		//===============================================
