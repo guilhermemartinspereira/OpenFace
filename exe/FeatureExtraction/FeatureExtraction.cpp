@@ -146,7 +146,7 @@ void create_directory(string output_path)
 
 void get_output_feature_params(vector<string> &output_similarity_aligned, vector<string> &output_hog_aligned_files, bool& visualize_track,
 	bool& visualize_align, bool& visualize_hog, bool &output_2D_landmarks, bool &output_3D_landmarks, bool &output_model_params,
-	bool &output_pose, bool &output_AUs, bool &output_gaze, bool &calibration_enabled, vector<string> &arguments);
+	bool &output_pose, bool &output_AUs, bool &output_gaze, bool &calibration_enabled, bool &load_user_params, vector<string> &arguments);
 
 void get_image_input_output_params_feats(vector<vector<string> > &input_image_files, bool& as_video, vector<string> &arguments);
 
@@ -420,7 +420,8 @@ int main (int argc, char **argv)
 	//===============================================
 
 	get_output_feature_params(output_similarity_align, output_hog_align_files, visualize_track, visualize_align, visualize_hog,
-		output_2D_landmarks, output_3D_landmarks, output_model_params, output_pose, output_AUs, output_gaze, calibration_enabled, arguments);
+		output_2D_landmarks, output_3D_landmarks, output_model_params, output_pose, output_AUs, output_gaze, calibration_enabled,
+		load_user_params, arguments);
 
 	// If multiple video files are tracked, use this to indicate if we are done
 	bool done = false;	
@@ -453,8 +454,9 @@ int main (int argc, char **argv)
 	}
 	// Load default parameters of AUs activations for facial expressions detection
 	else {
-		// Initialize json parameters structure
-		calibParams = {
+		loadAUsCalibParams(calibParams, "default");
+		//// Initialize json parameters structure
+		/*calibParams = {
 			{ "userName", "userName" },
 			{ "AU01",{
 				{ "upperThreshold", 5.5 },
@@ -476,8 +478,8 @@ int main (int argc, char **argv)
 				{ "bottomThreshold", -2.5 },
 				{ "ts" , 600 }
 			} }
-		};
-		setAUsActivationParams(calibParams);
+		};*/
+		//setAUsActivationParams(calibParams);
 	}
 
 	//===============================================
@@ -1709,12 +1711,49 @@ void setAUsActivationParams(const json& calibParams) {
 
 // Load AUs calibration parameters for facial expressions
 void loadAUsCalibParams(json& calibParams, const string calibFileName) {
-	// Read calibration file
-	std::ifstream in(calibFileName);
-	in >> calibParams;
-	// Set the system with the loaded calibration parameters
-	setAUsActivationParams(calibParams);
-	INFO_STREAM("Loaded parameters from " << calibFileName);
+	try {
+		// Load default parameters
+		if (calibFileName.compare("default") == 0) {
+			calibParams = {
+				{ "userName", "userName" },
+				{ "AU01",{
+					{ "upperThreshold", 4.5 },
+					{ "bottomThreshold", -4.5 },
+					{ "ts" , 600 }
+				} },
+				{ "AU06",{
+					{ "upperThreshold", 2.0 },
+					{ "bottomThreshold", -2.0},
+					{ "ts" , 600 }
+				} },
+				{ "AU14",{
+					{ "upperThreshold", 2.0 },
+					{ "bottomThreshold", -2.0 },
+					{ "ts" , 700 }
+				} },
+				{ "AU45",{
+					{ "upperThreshold", 2.0 },
+					{ "bottomThreshold", -2.0 },
+					{ "ts" , 600 }
+				} }
+			};
+			// Set the system with the loaded calibration parameters
+			setAUsActivationParams(calibParams);
+			INFO_STREAM("Loaded default parameters");
+		}
+		// Load json calibration file
+		else {
+			std::ifstream in(calibFileName);
+			in >> calibParams;
+			// Set the system with the loaded calibration parameters
+			setAUsActivationParams(calibParams);
+			INFO_STREAM("Loaded parameters from " << calibFileName);
+		}
+	}
+	catch (const std::exception&) {
+		ERROR_STREAM("Error loading parameters from " << calibFileName);
+		loadAUsCalibParams(calibParams, "default");		// Load default parameters
+	}
 }
 
 //==============================================
@@ -1886,9 +1925,9 @@ void outputAllFeatures(std::ofstream* output_file, bool output_2D_landmarks, boo
 }
 
 
-void get_output_feature_params(vector<string> &output_similarity_aligned, vector<string> &output_hog_aligned_files, bool& visualize_track, 
-	bool& visualize_align, bool& visualize_hog, bool &output_2D_landmarks, bool &output_3D_landmarks, bool &output_model_params, 
-	bool &output_pose, bool &output_AUs, bool &output_gaze, bool &calibration_enabled, vector<string> &arguments)
+void get_output_feature_params(vector<string> &output_similarity_aligned, vector<string> &output_hog_aligned_files, bool& visualize_track,
+	bool& visualize_align, bool& visualize_hog, bool &output_2D_landmarks, bool &output_3D_landmarks, bool &output_model_params,
+	bool &output_pose, bool &output_AUs, bool &output_gaze, bool &calibration_enabled, bool &load_user_params, vector<string> &arguments)
 {
 	output_similarity_aligned.clear();
 	output_hog_aligned_files.clear();
@@ -1995,6 +2034,11 @@ void get_output_feature_params(vector<string> &output_similarity_aligned, vector
 		//================== Guilherme ==================
 		else if (arguments[i].compare("-calib") == 0) {
 			calibration_enabled = true;
+			valid[i] = false;
+		}
+		else if (arguments[i].compare("-user") == 0) {
+			load_user_params = true;
+			calibFileName = arguments[i + 1];
 			valid[i] = false;
 		}
 		//===============================================
