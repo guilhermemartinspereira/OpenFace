@@ -162,7 +162,7 @@ int64 t0 = 0;
 #define SIZE_AUS 18						// Number of AUs
 #define SIZE_MA 6						// Size of the moving average
 #define SIZE_D 4						// Size of derivative
-#define N_RECORDINGS 5					// Number of recordings per facial expression on calibration mode
+#define N_RECORDINGS 3					// Number of recordings per facial expression on calibration mode
 //------ GLOBALS ------
 // YPR angles in rad
 float yaw = 0;
@@ -197,19 +197,19 @@ struct timezone {
 };
 // Struct for AUs activation used to detect facial expressions
 struct auActivation {
-	std::string name;		// Action Unit name
-	int ts;					// Maximum interval between upper and bottom threshold (AU derivative) for AU activation (milliseconds)
-	float upperThreshold;	// Upper threshold of AU derivative for its activation
-	float bottomThreshold;	// Bottom threshold of AU derivative for its activation
-	timeval upperTimestamp;	// Timestamp of upperThreshold activation
-	bool upperFlag;			// True if upperThreshold has been activated, false otherwise
-	bool bottomFlag;		// True if bottomThreshold has been activated, false otherwise
-	bool activated;			// True if upperThreshold and bottomThreshold has been activated with specified ts interval
+	std::string name;			// Action Unit name
+	int ts;						// Maximum interval between upper and bottom threshold (AU derivative) for AU activation (milliseconds)
+	float upperThreshold;		// Upper threshold of AU derivative for its activation
+	float bottomThreshold;		// Bottom threshold of AU derivative for its activation
+	timeval upperTimestamp;		// Timestamp of upperThreshold activation
+	bool upperFlag = false;		// True if upperThreshold has been activated, false otherwise
+	bool bottomFlag = false;	// True if bottomThreshold has been activated, false otherwise
+	bool activated = false;		// True if upperThreshold and bottomThreshold has been activated with specified ts interval
 } ausActivations[SIZE_AUS];
 // Calibration process
 std::string userName;
 std::string calibFileName;
-json calibParams;
+//json calibParams;
 int idxRec = 0;																			// Index of facial expression recording 
 int tsRecording = 2000;																	// Recording time for each expression
 int tsWait = 1500;																		// Waiting time between recordings
@@ -270,6 +270,10 @@ void calibrationInit(std::string &userName, json &calibParams);
 // Calibration process
 void calibrationProcess(json &calibParams, const std::string &calibFileName, cv::Mat& captured_image,
 	const LandmarkDetector::FaceModelParameters& det_parameters);
+// Set the AUs activation parameters
+void setAUsActivationParams(const json& calibParams);
+// Load AUs calibration parameters for facial expressions
+void loadAUsCalibParams(json& calibParams, const string calibFileName);
 //===============================================
 
 
@@ -410,52 +414,13 @@ int main (int argc, char **argv)
 	bool visualize_align = false;
 	bool visualize_hog = false;
 
-	//================== Guilherme ==================	
-	bool calibration_enabled = false;						// Flag to start calibration process and save the parameters in a json file
-	/*std::string userName;
-	std::string calibFileName = "CalibParams.json";
-	json calibParams;*/
+	//================== Guilherme ==================
+	bool calibration_enabled = false;		// Flag to start calibration process and save the parameters in a json file
+	bool load_user_params = false;			// Flag to load specific user parameters		
 	//===============================================
 
 	get_output_feature_params(output_similarity_align, output_hog_align_files, visualize_track, visualize_align, visualize_hog,
 		output_2D_landmarks, output_3D_landmarks, output_model_params, output_pose, output_AUs, output_gaze, calibration_enabled, arguments);
-
-	//================== Guilherme ==================
-	//if (calibration_enabled) {
-	//	// Calibration file name and json file initialization
-	//	INFO_STREAM("CALIBRATION MODE.\nPlease enter the user name:");
-	//	getline(cin, userName);
-	//	calibFileName = userName + calibFileName;
-	//	calibParams = {
-	//		{ "userName", userName },
-	//		{ "AU01",{
-	//			{ "upperThreshold", 0.0 },
-	//			{ "bottomThreshold", 0.0 },
-	//			{ "ts" , 0 }
-	//		} },
-	//		{ "AU06",{
-	//			{ "upperThreshold", 0.0 },
-	//			{ "bottomThreshold", 0.0 },
-	//			{ "ts" , 0 }
-	//		} },
-	//		{ "AU14",{
-	//			{ "upperThreshold", 0.0 },
-	//			{ "bottomThreshold", 0.0 },
-	//			{ "ts" , 0 }
-	//		} },
-	//		{ "AU45",{
-	//			{ "upperThreshold", 0.0 },
-	//			{ "bottomThreshold", 0.0 },
-	//			{ "ts" , 0 }
-	//		} }
-	//	};
-	//	// write JSON to configuration file
-	//	/*std::ofstream out(calibFileName);
-	//	out << std::setw(4) << calibParams << std::endl;
-	//	std::cout << "Calibration file has been initialized as " << calibFileName << endl;
-	//	INFO_STREAM("Press ENTER to start calibration...");*/
-	//}
-	//===============================================
 
 	// If multiple video files are tracked, use this to indicate if we are done
 	bool done = false;	
@@ -476,42 +441,45 @@ int main (int argc, char **argv)
 	//================== Guilherme ==================
 	// Construct the vector with the ordered AUs names
 	ausNames = getOrderedAUsNames(face_analyser);
-	// Initialize timeval variable
+	// Initialize initial reference timer for the application (milliseconds)
 	gettimeofday(&tInitial, NULL);
 	// Output file to analyze AUs in time (milliseconds)
 	std::ofstream outFile;
-	// Set default parameters of AUs activations for facial expressions detection
-	ausActivations[0].name = "au01";
-	ausActivations[0].ts = 600;
-	ausActivations[0].upperThreshold = 5.5;
-	ausActivations[0].bottomThreshold = -5.5;
-	ausActivations[0].upperFlag = false;
-	ausActivations[0].bottomFlag = false;
-	ausActivations[0].activated = false;
+	// json format for facial expression calibration
+	json calibParams;
+	// Load parameters from json file passed as argument
+	if (load_user_params) {
+		loadAUsCalibParams(calibParams, calibFileName);
+	}
+	// Load default parameters of AUs activations for facial expressions detection
+	else {
+		// Initialize json parameters structure
+		calibParams = {
+			{ "userName", "userName" },
+			{ "AU01",{
+				{ "upperThreshold", 5.5 },
+				{ "bottomThreshold", -5.5 },
+				{ "ts" , 600 }
+			} },
+			{ "AU06",{
+				{ "upperThreshold", 3.5 },
+				{ "bottomThreshold", -3.5 },
+				{ "ts" , 600 }
+			} },
+			{ "AU14",{
+				{ "upperThreshold", 3.5 },
+				{ "bottomThreshold", -3.5 },
+				{ "ts" , 700 }
+			} },
+			{ "AU45",{
+				{ "upperThreshold", 2.5 },
+				{ "bottomThreshold", -2.5 },
+				{ "ts" , 600 }
+			} }
+		};
+		setAUsActivationParams(calibParams);
+	}
 
-	ausActivations[4].name = "au06";
-	ausActivations[4].ts = 600;
-	ausActivations[4].upperThreshold = 3.5;
-	ausActivations[4].bottomThreshold = -3.5;
-	ausActivations[4].upperFlag = false;
-	ausActivations[4].bottomFlag = false;
-	ausActivations[4].activated = false;
-
-	ausActivations[9].name = "au14";
-	ausActivations[9].ts = 700;
-	ausActivations[9].upperThreshold = 3.5;
-	ausActivations[9].bottomThreshold = -3.5;
-	ausActivations[9].upperFlag = false;
-	ausActivations[9].bottomFlag = false;
-	ausActivations[9].activated = false;
-		
-	ausActivations[17].name = "au45";
-	ausActivations[17].ts = 600;
-	ausActivations[17].upperThreshold = 2.5;
-	ausActivations[17].bottomThreshold = -2.5;
-	ausActivations[17].upperFlag = false;
-	ausActivations[17].bottomFlag = false;
-	ausActivations[17].activated = false;
 	//===============================================
 		
 	while(!done) // this is not a for loop as we might also be reading from a webcam
@@ -1442,30 +1410,6 @@ void calibrationInit(std::string &userName, json &calibParams) {
 	INFO_STREAM("CALIBRATION MODE.\nPlease enter the user name:");
 	getline(cin, userName);
 	calibFileName = "calibParams_" + userName+ ".json";
-	// json file initialization
-	calibParams = {
-		{ "userName", userName },
-		{ "AU01",{
-			{ "upperThreshold", 0.0 },
-			{ "bottomThreshold", 0.0 },
-			{ "ts" , 0 }
-		} },
-		{ "AU06",{
-			{ "upperThreshold", 0.0 },
-			{ "bottomThreshold", 0.0 },
-			{ "ts" , 0 }
-		} },
-		{ "AU14",{
-			{ "upperThreshold", 0.0 },
-			{ "bottomThreshold", 0.0 },
-			{ "ts" , 0 }
-		} },
-		{ "AU45",{
-			{ "upperThreshold", 0.0 },
-			{ "bottomThreshold", 0.0 },
-			{ "ts" , 0 }
-		} }
-	};
 }
 
 // Calibration process
@@ -1537,8 +1481,8 @@ void calibrationProcess(json &calibParams, const std::string &calibFileName, cv:
 				ts = ausTsCalib[0][i] > ts ? ausTsCalib[0][i] : ts;
 			}
 			// Write parameters on json object
-			calibParams["AU01"]["upperThreshold"] = upperThreshold;
-			calibParams["AU01"]["bottomThreshold"] = bottomThreshold;
+			calibParams["AU01"]["upperThreshold"] = 0.8 * upperThreshold;
+			calibParams["AU01"]["bottomThreshold"] = 0.8 * bottomThreshold;
 			calibParams["AU01"]["ts"] = ts;
 			// Export json configuration to file
 			std::ofstream out(calibFileName);
@@ -1609,8 +1553,8 @@ void calibrationProcess(json &calibParams, const std::string &calibFileName, cv:
 				ts = ausTsCalib[17][i] > ts ? ausTsCalib[17][i] : ts;
 			}
 			// Write parameters on json object
-			calibParams["AU45"]["upperThreshold"] = upperThreshold;
-			calibParams["AU45"]["bottomThreshold"] = bottomThreshold;
+			calibParams["AU45"]["upperThreshold"] = 0.8 * upperThreshold;
+			calibParams["AU45"]["bottomThreshold"] = 0.8 * bottomThreshold;
 			calibParams["AU45"]["ts"] = ts;
 			// Export json configuration to file
 			std::ofstream out(calibFileName);
@@ -1697,8 +1641,8 @@ void calibrationProcess(json &calibParams, const std::string &calibFileName, cv:
 				ts = ausTsCalib[4][i] > ts ? ausTsCalib[4][i] : ts;
 			}
 			// Write parameters on json object
-			calibParams["AU06"]["upperThreshold"] = upperThreshold;
-			calibParams["AU06"]["bottomThreshold"] = bottomThreshold;
+			calibParams["AU06"]["upperThreshold"] = 0.8 * upperThreshold;
+			calibParams["AU06"]["bottomThreshold"] = 0.8 * bottomThreshold;
 			calibParams["AU06"]["ts"] = ts;
 
 			// AU14
@@ -1718,30 +1662,61 @@ void calibrationProcess(json &calibParams, const std::string &calibFileName, cv:
 				ts = ausTsCalib[9][i] > ts ? ausTsCalib[9][i] : ts;
 			}
 			// Write parameters on json object
-			calibParams["AU14"]["upperThreshold"] = upperThreshold;
-			calibParams["AU14"]["bottomThreshold"] = bottomThreshold;
+			calibParams["AU14"]["upperThreshold"] = 0.8 * upperThreshold;
+			calibParams["AU14"]["bottomThreshold"] = 0.8 * bottomThreshold;
 			calibParams["AU14"]["ts"] = ts;
-
 			// Export json configuration to file
 			std::ofstream out(calibFileName);
 			out << std::setw(4) << calibParams << std::endl;
 			// Set the first facial expression to start with next calibration 
 			expCalib = "EYEBROWS_UP";
+			// Set the AUs with the calibration parameters
+			setAUsActivationParams(calibParams);
+			INFO_STREAM("System configured to user: " << userName);
 			// Finish calibration process
-			isCalibrating = false;
+			isCalibrating = false;			
 			INFO_STREAM("Calibration has been finished and saved to " << calibFileName);
-
-			//// read a JSON file
-			//std::ifstream i("pretty.json");
-			//json j2;
-			//i >> j2;
-			//float a = j2["pi"];
-			//std::string s = j2["object"]["currency"];
-			//float v = j2["object"]["value"];
-			//std::cout << a << " " << s << " " << v << endl
 		}
 	}
 }
+
+// Set the AUs activation parameters
+void setAUsActivationParams(const json& calibParams) {
+	// Set EYEBROWS_UP parameters (AU01)
+	ausActivations[0].name = ausNames[0];
+	ausActivations[0].upperThreshold = calibParams["AU01"]["upperThreshold"].get<float>();
+	ausActivations[0].bottomThreshold = calibParams["AU01"]["bottomThreshold"].get<float>();
+	ausActivations[0].ts = 600;
+	INFO_STREAM("AU01 upper " << ausActivations[0].upperThreshold << " bottom " << ausActivations[0].bottomThreshold);
+	// Set BLINK parameters (AU45)
+	ausActivations[17].name = ausNames[17];
+	ausActivations[17].upperThreshold = calibParams["AU45"]["upperThreshold"].get<float>();
+	ausActivations[17].bottomThreshold = calibParams["AU45"]["bottomThreshold"].get<float>();
+	ausActivations[17].ts = 600;
+	INFO_STREAM("AU45 upper " << ausActivations[17].upperThreshold << " bottom " << ausActivations[17].bottomThreshold);
+	// Set SMILE parameters (AU06 and AU14)
+	ausActivations[4].name = ausNames[4];
+	ausActivations[4].upperThreshold = calibParams["AU06"]["upperThreshold"].get<float>();
+	ausActivations[4].bottomThreshold = calibParams["AU06"]["bottomThreshold"].get<float>();
+	ausActivations[4].ts = 700;
+	INFO_STREAM("AU06 upper " << ausActivations[4].upperThreshold << " bottom " << ausActivations[4].bottomThreshold);
+	ausActivations[9].name = ausNames[9]; 
+	ausActivations[9].upperThreshold = calibParams["AU14"]["upperThreshold"].get<float>();
+	ausActivations[9].bottomThreshold = calibParams["AU14"]["bottomThreshold"].get<float>();
+	ausActivations[9].ts = 600;
+	INFO_STREAM("AU14 upper " << ausActivations[9].upperThreshold << " bottom " << ausActivations[9].bottomThreshold);
+}
+
+// Load AUs calibration parameters for facial expressions
+void loadAUsCalibParams(json& calibParams, const string calibFileName) {
+	// Read calibration file
+	std::ifstream in(calibFileName);
+	in >> calibParams;
+	// Set the system with the loaded calibration parameters
+	setAUsActivationParams(calibParams);
+	INFO_STREAM("Loaded parameters from " << calibFileName);
+}
+
 //==============================================
 
 // Output all of the information into one file in one go (quite a few parameters, but simplifies the flow)
