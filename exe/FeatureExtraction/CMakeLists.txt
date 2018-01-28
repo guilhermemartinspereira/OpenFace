@@ -3,6 +3,9 @@ include_directories(${TBB_ROOT_DIR}/include)
 
 add_executable(FeatureExtraction FeatureExtraction.cpp)
 
+# json include (for json.hpp)
+include_directories(../../lib/3rdParty/json)
+
 # Local libraries
 include_directories(${LandmarkDetector_SOURCE_DIR}/include)
 
