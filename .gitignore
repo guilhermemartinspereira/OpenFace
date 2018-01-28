@@ -55,3 +55,4 @@ matlab_version/face_validation/trained/intermediate/
 #Guilherme
 .vs/
 OpenFace.VC*
+.vscode
