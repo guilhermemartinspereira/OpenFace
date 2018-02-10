@@ -58,8 +58,8 @@
 #include <GazeEstimation.h>
 
 //================== Guilherme ==================
-#include < time.h >
 #if defined(_MSC_VER) || defined(_MSC_EXTENSIONS)
+	#include < time.h >	
 	#define DELTA_EPOCH_IN_MICROSECS  11644473600000000Ui64
 #else
 	#define DELTA_EPOCH_IN_MICROSECS  11644473600000000ULL
@@ -190,11 +190,17 @@ std::vector<long> ausTime(SIZE_D);			// Vector to store SIZE_D timestamps for th
 std::vector<std::vector<double>> ausDerivMatrix(SIZE_AUS, std::vector<double>(SIZE_D));		// Matrix to store the MA intensities for derivative calculation
 // Timeval struct to store time in milliseconds and microseconds
 timeval tInitial;
-// Necessary to implement the gettimeofday() function
-struct timezone {
-	int  tz_minuteswest; /* minutes W of Greenwich */
-	int  tz_dsttime;     /* type of dst correction */
-};
+
+#if defined(_MSC_VER) || defined(_MSC_EXTENSIONS)
+	// Necessary to implement the gettimeofday() function
+	struct timezone {
+		int  tz_minuteswest; /* minutes W of Greenwich */
+		int  tz_dsttime;     /* type of dst correction */
+	};
+#else
+
+#endif
+
 // Struct for AUs activation used to detect facial expressions
 struct auActivation {
 	std::string name;			// Action Unit name
@@ -254,9 +260,11 @@ void visualizeCalibFlag(cv::Mat& captured_image, const LandmarkDetector::FaceMod
 void checkAUsActiv();
 // Detect if any facial expression has been detected
 void detectFacialExp();
-/*Get the timestamp in seconds and microseconds
-Obtained from https://social.msdn.microsoft.com/Forums/vstudio/en-US/430449b3-f6dd-4e18-84de-eebd26a8d668/gettimeofday?forum=vcgeneral */
-int gettimeofday(struct timeval *tv, struct timezone *tz);
+#if defined(_MSC_VER) || defined(_MSC_EXTENSIONS)
+	/*Get the timestamp in seconds and microseconds
+	Obtained from https://social.msdn.microsoft.com/Forums/vstudio/en-US/430449b3-f6dd-4e18-84de-eebd26a8d668/gettimeofday?forum=vcgeneral */
+	int gettimeofday(struct timeval *tv, struct timezone *tz);
+#endif
 // Get difference of time in millisenconds based on a reference timeval passed as reference
 long getTimeDiff(struct timeval *tvRef);
 // Output to a text file with AUs MA values, derivatives and timestamps (in milliseconds) for offline analysis 
@@ -1298,42 +1306,44 @@ void detectFacialExp() {
 	}
 }
 
-/*Get the timestamp in seconds and microseconds
-Obtained from https://social.msdn.microsoft.com/Forums/vstudio/en-US/430449b3-f6dd-4e18-84de-eebd26a8d668/gettimeofday?forum=vcgeneral
-*/
-int gettimeofday(struct timeval *tv, struct timezone *tz) {
-	FILETIME ft;
-	unsigned __int64 tmpres = 0;
-	static int tzflag;
+#if defined(_MSC_VER) || defined(_MSC_EXTENSIONS)
+	/*Get the timestamp in seconds and microseconds
+	Obtained from https://social.msdn.microsoft.com/Forums/vstudio/en-US/430449b3-f6dd-4e18-84de-eebd26a8d668/gettimeofday?forum=vcgeneral
+	*/
+	int gettimeofday(struct timeval *tv, struct timezone *tz) {
+		FILETIME ft;
+		unsigned __int64 tmpres = 0;
+		static int tzflag;
 
-	if (NULL != tv)
-	{
-		GetSystemTimeAsFileTime(&ft);
-
-		tmpres |= ft.dwHighDateTime;
-		tmpres <<= 32;
-		tmpres |= ft.dwLowDateTime;
-
-		/*converting file time to unix epoch*/
-		tmpres -= DELTA_EPOCH_IN_MICROSECS;
-		tmpres /= 10;  /*convert into microseconds*/
-		tv->tv_sec = (long)(tmpres / 1000000UL);
-		tv->tv_usec = (long)(tmpres % 1000000UL);
-	}
-
-	if (NULL != tz)
-	{
-		if (!tzflag)
+		if (NULL != tv)
 		{
-			_tzset();
-			tzflag++;
-		}
-		tz->tz_minuteswest = _timezone / 60;
-		tz->tz_dsttime = _daylight;
-	}
+			GetSystemTimeAsFileTime(&ft);
 
-	return 0;
-}
+			tmpres |= ft.dwHighDateTime;
+			tmpres <<= 32;
+			tmpres |= ft.dwLowDateTime;
+
+			/*converting file time to unix epoch*/
+			tmpres -= DELTA_EPOCH_IN_MICROSECS;
+			tmpres /= 10;  /*convert into microseconds*/
+			tv->tv_sec = (long)(tmpres / 1000000UL);
+			tv->tv_usec = (long)(tmpres % 1000000UL);
+		}
+
+		if (NULL != tz)
+		{
+			if (!tzflag)
+			{
+				_tzset();
+				tzflag++;
+			}
+			tz->tz_minuteswest = _timezone / 60;
+			tz->tz_dsttime = _daylight;
+		}
+
+		return 0;
+	}
+#endif	
 
 // Get difference of time in millisenconds based on a reference timeval passed as reference
 long getTimeDiff(struct timeval *tvRef) {

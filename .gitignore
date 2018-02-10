@@ -3,6 +3,7 @@ exe/FaceLandmarkVidMulti/x64/
 lib/3rdParty/dlib/x64/
 lib/local/FaceAnalyser/x64/
 lib/local/LandmarkDetector/x64/
+lib/local/GazeAnalyzer/x64/
 exe/FaceLandmarkImg/x64/
 exe/FaceLandmarkVid/x64/
 exe/FeatureExtraction/x64/
@@ -44,6 +45,7 @@ exe/Recording/Debug/
 lib/3rdParty/dlib/Debug/
 lib/local/FaceAnalyser/Debug/
 lib/local/LandmarkDetector/Debug/
+lib/local/GazeAnalyzer/Debug/
 matlab_runners/Head Pose Experiments/experiments/biwi_out/
 matlab_runners/Head Pose Experiments/experiments/bu_out/
 matlab_runners/Head Pose Experiments/experiments/ict_out/
@@ -55,3 +57,5 @@ matlab_version/face_validation/trained/intermediate/
 #Guilherme
 .vs/
 OpenFace.VC*
+.vscode
+/exe/FeatureExtraction/FeatureExtraction.vcxproj
