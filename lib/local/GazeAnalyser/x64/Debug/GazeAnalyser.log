@@ -1,0 +1,17 @@
+﻿  0 arquivo(s) copiado(s)
+  GazeEstimation.cpp
+c:\program files (x86)\microsoft visual studio 14.0\vc\include\utility(200): warning C4267: 'initializing': conversion from 'size_t' to 'unsigned long', possible loss of data
+  c:\guilherme\openface\lib\3rdparty\dlib\include\dlib\image_processing\shape_predictor.h(710): note: see reference to function template instantiation 'std::pair<unsigned long,unsigned long>::pair<int,unsigned __int64,void,0>(std::pair<int,unsigned __int64> &&) noexcept' being compiled
+  c:\guilherme\openface\lib\3rdparty\dlib\include\dlib\image_processing\shape_predictor.h(710): note: see reference to function template instantiation 'std::pair<unsigned long,unsigned long>::pair<int,unsigned __int64,void,0>(std::pair<int,unsigned __int64> &&) noexcept' being compiled
+c:\guilherme\openface\lib\3rdparty\tbb\include\tbb\enumerable_thread_specific.h(112): warning C4334: '<<': result of 32-bit shift implicitly converted to 64 bits (was 64-bit shift intended?)
+  c:\guilherme\openface\lib\3rdparty\tbb\include\tbb\enumerable_thread_specific.h(111): note: while compiling class template member function 'void tbb::interface6::internal::ets_base<tbb::ets_no_key>::free(tbb::interface6::internal::ets_base<tbb::ets_no_key>::array *)'
+  c:\guilherme\openface\lib\3rdparty\tbb\include\tbb\enumerable_thread_specific.h(218): note: see reference to function template instantiation 'void tbb::interface6::internal::ets_base<tbb::ets_no_key>::free(tbb::interface6::internal::ets_base<tbb::ets_no_key>::array *)' being compiled
+  c:\guilherme\openface\lib\3rdparty\tbb\include\tbb\enumerable_thread_specific.h(245): note: see reference to class template instantiation 'tbb::interface6::internal::ets_base<tbb::ets_no_key>' being compiled
+c:\guilherme\openface\lib\3rdparty\tbb\include\tbb\enumerable_thread_specific.h(105): warning C4334: '<<': result of 32-bit shift implicitly converted to 64 bits (was 64-bit shift intended?)
+  c:\guilherme\openface\lib\3rdparty\tbb\include\tbb\enumerable_thread_specific.h(104): note: while compiling class template member function 'tbb::interface6::internal::ets_base<tbb::ets_no_key>::array *tbb::interface6::internal::ets_base<tbb::ets_no_key>::allocate(std::size_t)'
+  c:\guilherme\openface\lib\3rdparty\tbb\include\tbb\enumerable_thread_specific.h(209): note: see reference to function template instantiation 'tbb::interface6::internal::ets_base<tbb::ets_no_key>::array *tbb::interface6::internal::ets_base<tbb::ets_no_key>::allocate(std::size_t)' being compiled
+  GazeAnalyser.vcxproj -> C:\Guilherme\OpenFace\x64\Debug\GazeAnalyser.lib
+  0 arquivo(s) copiado(s)
+  0 arquivo(s) copiado(s)
+  0 arquivo(s) copiado(s)
+  0 arquivo(s) copiado(s)
