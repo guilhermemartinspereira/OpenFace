@@ -58,4 +58,3 @@ matlab_version/face_validation/trained/intermediate/
 .vs/
 OpenFace.VC*
 .vscode
-/exe/FeatureExtraction/FeatureExtraction.vcxproj
