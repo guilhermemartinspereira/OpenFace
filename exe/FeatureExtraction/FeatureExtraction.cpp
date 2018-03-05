@@ -67,6 +67,12 @@
 //JSON include https://github.com/nlohmann/json/releases
 #include "json.hpp"
 using json = nlohmann::json;
+// UDP communication
+#include<arpa/inet.h>
+#include<sys/socket.h>
+#define EP1 "127.0.0.1"			// Endpoint for device 1
+#define BUFLEN 512  			// Max length of buffer
+#define PORT_EP1 55555   		// The port on which to send data
 //===============================================
 
 #ifndef CONFIG_DIR
@@ -229,7 +235,11 @@ bool isRecording = false;
 bool isWaiting = false;
 bool isCalibrating = false;																// Start calibration flag 		
 timeval tRecording, tWait;
-
+// UDP communication
+struct sockaddr_in wcAddress;
+int wcSocket, wcSocketLen = sizeof(wcAddress);
+char buf[BUFLEN];
+char cmdToWC[BUFLEN];
 
 //------ FUNCTIONS ------
 // Update the YPR angles in radians
@@ -489,6 +499,21 @@ int main (int argc, char **argv)
 		};*/
 		//setAUsActivationParams(calibParams);
 	}
+
+	// UDP communication
+	if ( (wcSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
+        perror("socket");
+		exit(1);
+    }
+ 
+    memset((char *) &wcAddress, 0, sizeof(wcAddress));
+    wcAddress.sin_family = AF_INET;
+    wcAddress.sin_port = htons(PORT_EP1);
+     
+    if (inet_aton(EP1 , &wcAddress.sin_addr) == 0) {
+        fprintf(stderr, "inet_aton() failed\n");
+        exit(1);
+    }
 
 	//===============================================
 		
@@ -859,6 +884,7 @@ int main (int argc, char **argv)
 				// quit the application
 				else if(character_press=='q')
 				{
+					close(wcSocket);
 					return(0);
 				}
 			}
@@ -1286,6 +1312,12 @@ void detectFacialExp() {
 		ausActivations[0].upperFlag = false;
 		ausActivations[0].bottomFlag = false;
 		ausActivations[0].activated = false;
+		// Send facial expression via UDP
+		std::sprintf(cmdToWC, "EYEBROWS_UP\n");
+        if (sendto(wcSocket, cmdToWC, strlen(cmdToWC) , 0 , (struct sockaddr *) &wcAddress, wcSocketLen) == -1) {
+            perror("sendto()");
+			exit(1);
+        }
 	}
 	// BLINK (AU45)
 	else if (ausActivations[17].activated) {
@@ -1293,6 +1325,12 @@ void detectFacialExp() {
 		ausActivations[17].upperFlag = false;
 		ausActivations[17].bottomFlag = false;
 		ausActivations[17].activated = false;
+		// Send facial expression via UDP
+		std::sprintf(cmdToWC, "BLINK\n");
+        if (sendto(wcSocket, cmdToWC, strlen(cmdToWC) , 0 , (struct sockaddr *) &wcAddress, wcSocketLen) == -1) {
+            perror("sendto()");
+			exit(1);
+        }
 	}
 	// SMILE (AU06 and AU14)
 	else if (ausActivations[4].activated && ausActivations[9].activated) {
@@ -1303,6 +1341,11 @@ void detectFacialExp() {
 		ausActivations[9].upperFlag = false;
 		ausActivations[9].bottomFlag = false;
 		ausActivations[9].activated = false;
+		std::sprintf(cmdToWC, "SMILE\n");
+        if (sendto(wcSocket, cmdToWC, strlen(cmdToWC) , 0 , (struct sockaddr *) &wcAddress, wcSocketLen) == -1) {
+            perror("sendto()");
+			exit(1);
+        }
 	}
 }
 
