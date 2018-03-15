@@ -70,9 +70,11 @@ using json = nlohmann::json;
 // UDP communication
 #include<arpa/inet.h>
 #include<sys/socket.h>
-#define EP1 "127.0.0.1"			// Endpoint for device 1
-#define BUFLEN 512  			// Max length of buffer
-#define PORT_EP1 55555   		// The port on which to send data
+#define EP1 "192.168.15.12"			// Endpoint for device 1
+#define EP2 "127.0.0.1"				// Endpoint for device 2
+#define BUFLEN 512  				// Max length of buffer
+#define PORT_EP1 55555   			// The port on which to send data to device 1
+#define PORT_EP2 55556   			// The port on which to send data to device 2
 //===============================================
 
 #ifndef CONFIG_DIR
@@ -236,10 +238,13 @@ bool isWaiting = false;
 bool isCalibrating = false;																// Start calibration flag 		
 timeval tRecording, tWait;
 // UDP communication
-struct sockaddr_in wcAddress;
-int wcSocket, wcSocketLen = sizeof(wcAddress);
-char buf[BUFLEN];
-char cmdToWC[BUFLEN];
+struct sockaddr_in dev1Address;
+struct sockaddr_in dev2Address;
+int dev1Socket, dev1SocketLen = sizeof(dev1Address);
+int dev2Socket, dev2SocketLen = sizeof(dev2Address);
+char msgToDev1[BUFLEN];
+char msgToDev2[BUFLEN];
+int broadcastEnable = 0;
 
 //------ FUNCTIONS ------
 // Update the YPR angles in radians
@@ -473,45 +478,45 @@ int main (int argc, char **argv)
 	// Load default parameters of AUs activations for facial expressions detection
 	else {
 		loadAUsCalibParams(calibParams, "default");
-		//// Initialize json parameters structure
-		/*calibParams = {
-			{ "userName", "userName" },
-			{ "AU01",{
-				{ "upperThreshold", 5.5 },
-				{ "bottomThreshold", -5.5 },
-				{ "ts" , 600 }
-			} },
-			{ "AU06",{
-				{ "upperThreshold", 3.5 },
-				{ "bottomThreshold", -3.5 },
-				{ "ts" , 600 }
-			} },
-			{ "AU14",{
-				{ "upperThreshold", 3.5 },
-				{ "bottomThreshold", -3.5 },
-				{ "ts" , 700 }
-			} },
-			{ "AU45",{
-				{ "upperThreshold", 2.5 },
-				{ "bottomThreshold", -2.5 },
-				{ "ts" , 600 }
-			} }
-		};*/
-		//setAUsActivationParams(calibParams);
 	}
 
 	// UDP communication
-	if ( (wcSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
-        perror("socket");
+	if ( (dev1Socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
+        perror("dev1 socket ");
 		exit(1);
     }
- 
-    memset((char *) &wcAddress, 0, sizeof(wcAddress));
-    wcAddress.sin_family = AF_INET;
-    wcAddress.sin_port = htons(PORT_EP1);
+	if ( (dev2Socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
+        perror("dev2 socket");
+		exit(1);
+    }
+
+	// Allows broadcast to be sent
+	if(broadcastEnable) {
+		if (setsockopt(dev1Socket, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, sizeof(broadcastEnable)) == -1) {
+			perror("setsockopt (SO_BROADCAST) for dev 1");
+			exit(1);
+		}
+		if (setsockopt(dev2Socket, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, sizeof(broadcastEnable)) == -1) {
+			perror("setsockopt (SO_BROADCAST) for dev 2");
+			exit(1);
+		}
+	}
+
+    memset((char *) &dev1Address, 0, sizeof(dev1Address));
+    dev1Address.sin_family = AF_INET;
+    dev1Address.sin_port = htons(PORT_EP1);
+
+	memset((char *) &dev2Address, 0, sizeof(dev2Address));
+    dev2Address.sin_family = AF_INET;
+    dev2Address.sin_port = htons(PORT_EP2);
      
-    if (inet_aton(EP1 , &wcAddress.sin_addr) == 0) {
-        fprintf(stderr, "inet_aton() failed\n");
+    if (inet_aton(EP1 , &dev1Address.sin_addr) == 0) {
+        fprintf(stderr, "inet_aton() failed on dev 1\n");
+        exit(1);
+    }
+
+	if (inet_aton(EP2 , &dev2Address.sin_addr) == 0) {
+        fprintf(stderr, "inet_aton() failed on dev 2\n");
         exit(1);
     }
 
@@ -788,6 +793,12 @@ int main (int argc, char **argv)
 			// Update corrected YPR angles if zero reference has been set
 			if (zeroRefYPRSet) {	
 				updateCorrYPR();
+				// Send angles via UDP
+				std::sprintf(msgToDev1, "%d %d %d\n", int(TO_DEG(yaw*100)), int(TO_DEG(pitch*100)), int(TO_DEG(roll*100)));
+				if (sendto(dev1Socket, msgToDev1, strlen(msgToDev1) , 0 , (struct sockaddr *) &dev1Address, dev1SocketLen) == -1) {
+					perror("sendto() dev 1");
+					exit(1);
+				}
 			}
 			// Get ordered AUs values (presence and intensity)
 			ausClass = getRawAUs(face_analyser, 0); 
@@ -884,7 +895,8 @@ int main (int argc, char **argv)
 				// quit the application
 				else if(character_press=='q')
 				{
-					close(wcSocket);
+					close(dev1Socket);
+					close(dev2Socket);
 					return(0);
 				}
 			}
@@ -1313,9 +1325,9 @@ void detectFacialExp() {
 		ausActivations[0].bottomFlag = false;
 		ausActivations[0].activated = false;
 		// Send facial expression via UDP
-		std::sprintf(cmdToWC, "EYEBROWS_UP\n");
-        if (sendto(wcSocket, cmdToWC, strlen(cmdToWC) , 0 , (struct sockaddr *) &wcAddress, wcSocketLen) == -1) {
-            perror("sendto()");
+		std::sprintf(msgToDev2, "EYEBROWS_UP\n");
+        if (sendto(dev2Socket, msgToDev2, strlen(msgToDev2) , 0 , (struct sockaddr *) &dev2Address, dev2SocketLen) == -1) {
+            perror("sendto() dev 2");
 			exit(1);
         }
 	}
@@ -1326,9 +1338,9 @@ void detectFacialExp() {
 		ausActivations[17].bottomFlag = false;
 		ausActivations[17].activated = false;
 		// Send facial expression via UDP
-		std::sprintf(cmdToWC, "BLINK\n");
-        if (sendto(wcSocket, cmdToWC, strlen(cmdToWC) , 0 , (struct sockaddr *) &wcAddress, wcSocketLen) == -1) {
-            perror("sendto()");
+		std::sprintf(msgToDev2, "BLINK\n");
+        if (sendto(dev2Socket, msgToDev2, strlen(msgToDev2) , 0 , (struct sockaddr *) &dev2Address, dev2SocketLen) == -1) {
+            perror("sendto() dev 2");
 			exit(1);
         }
 	}
@@ -1341,9 +1353,9 @@ void detectFacialExp() {
 		ausActivations[9].upperFlag = false;
 		ausActivations[9].bottomFlag = false;
 		ausActivations[9].activated = false;
-		std::sprintf(cmdToWC, "SMILE\n");
-        if (sendto(wcSocket, cmdToWC, strlen(cmdToWC) , 0 , (struct sockaddr *) &wcAddress, wcSocketLen) == -1) {
-            perror("sendto()");
+		std::sprintf(msgToDev2, "SMILE\n");
+        if (sendto(dev2Socket, msgToDev2, strlen(msgToDev2) , 0 , (struct sockaddr *) &dev2Address, dev2SocketLen) == -1) {
+            perror("sendto() dev 2");
 			exit(1);
         }
 	}
