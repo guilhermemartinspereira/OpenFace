@@ -242,6 +242,10 @@ struct sockaddr_in dev1Address;
 struct sockaddr_in dev2Address;
 int dev1Socket, dev1SocketLen = sizeof(dev1Address);
 int dev2Socket, dev2SocketLen = sizeof(dev2Address);
+char dev1IP[128] = EP1;
+char dev2IP[128] = EP2;
+int dev1PORT = PORT_EP1;
+int dev2PORT = PORT_EP2;
 char msgToDev1[BUFLEN];
 char msgToDev2[BUFLEN];
 int broadcastEnable = 0;
@@ -504,18 +508,18 @@ int main (int argc, char **argv)
 
     memset((char *) &dev1Address, 0, sizeof(dev1Address));
     dev1Address.sin_family = AF_INET;
-    dev1Address.sin_port = htons(PORT_EP1);
+    dev1Address.sin_port = htons(dev1PORT);
 
 	memset((char *) &dev2Address, 0, sizeof(dev2Address));
     dev2Address.sin_family = AF_INET;
-    dev2Address.sin_port = htons(PORT_EP2);
+    dev2Address.sin_port = htons(dev2PORT);
      
-    if (inet_aton(EP1 , &dev1Address.sin_addr) == 0) {
+    if (inet_aton(dev1IP , &dev1Address.sin_addr) == 0) {
         fprintf(stderr, "inet_aton() failed on dev 1\n");
         exit(1);
     }
 
-	if (inet_aton(EP2 , &dev2Address.sin_addr) == 0) {
+	if (inet_aton(dev2IP , &dev2Address.sin_addr) == 0) {
         fprintf(stderr, "inet_aton() failed on dev 2\n");
         exit(1);
     }
@@ -2105,6 +2109,20 @@ void get_output_feature_params(vector<string> &output_similarity_aligned, vector
 			load_user_params = true;
 			calibFileName = arguments[i + 1];
 			valid[i] = false;
+		}
+		else if (arguments[i].compare("-dev1") == 0) {
+			std::string ip = arguments[i + 1];
+			std::strcpy(dev1IP, ip.c_str());
+			std::string port = arguments[i + 2];
+			dev1PORT = std::stoi(port);
+			INFO_STREAM("YPR angles => dev1 IP " << dev1IP << " PORT " << dev1PORT);
+		}
+		else if (arguments[i].compare("-dev2") == 0) {
+			std::string ip = arguments[i + 1];
+			std::strcpy(dev2IP, ip.c_str());
+			std::string port = arguments[i + 2];
+			dev2PORT = std::stoi(port);
+			INFO_STREAM("Facial expressions => dev2: IP " << dev2IP << " PORT " << dev2PORT);
 		}
 		//===============================================
 	}
