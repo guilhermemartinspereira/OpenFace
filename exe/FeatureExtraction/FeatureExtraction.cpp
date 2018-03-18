@@ -798,7 +798,7 @@ int main (int argc, char **argv)
 			if (zeroRefYPRSet) {	
 				updateCorrYPR();
 				// Send angles via UDP
-				std::sprintf(msgToDev1, "%d %d %d\n", int(TO_DEG(yaw*100)), int(TO_DEG(pitch*100)), int(TO_DEG(roll*100)));
+				std::sprintf(msgToDev1, "%d %d %d\n", int(TO_DEG(cYaw*100)), int(TO_DEG(cPitch*100)), int(TO_DEG(cRoll*100)));
 				if (sendto(dev1Socket, msgToDev1, strlen(msgToDev1) , 0 , (struct sockaddr *) &dev1Address, dev1SocketLen) == -1) {
 					perror("sendto() dev 1");
 					exit(1);
