@@ -67,6 +67,14 @@
 //JSON include https://github.com/nlohmann/json/releases
 #include "json.hpp"
 using json = nlohmann::json;
+// UDP communication
+#include<arpa/inet.h>
+#include<sys/socket.h>
+#define EP1 "192.168.15.12"			// Endpoint for device 1
+#define EP2 "127.0.0.1"				// Endpoint for device 2
+#define BUFLEN 512  				// Max length of buffer
+#define PORT_EP1 55555   			// The port on which to send data to device 1
+#define PORT_EP2 55556   			// The port on which to send data to device 2
 //===============================================
 
 #ifndef CONFIG_DIR
@@ -229,7 +237,18 @@ bool isRecording = false;
 bool isWaiting = false;
 bool isCalibrating = false;																// Start calibration flag 		
 timeval tRecording, tWait;
-
+// UDP communication
+struct sockaddr_in dev1Address;
+struct sockaddr_in dev2Address;
+int dev1Socket, dev1SocketLen = sizeof(dev1Address);
+int dev2Socket, dev2SocketLen = sizeof(dev2Address);
+char dev1IP[128] = EP1;
+char dev2IP[128] = EP2;
+int dev1PORT = PORT_EP1;
+int dev2PORT = PORT_EP2;
+char msgToDev1[BUFLEN];
+char msgToDev2[BUFLEN];
+int broadcastEnable = 0;
 
 //------ FUNCTIONS ------
 // Update the YPR angles in radians
@@ -463,32 +482,47 @@ int main (int argc, char **argv)
 	// Load default parameters of AUs activations for facial expressions detection
 	else {
 		loadAUsCalibParams(calibParams, "default");
-		//// Initialize json parameters structure
-		/*calibParams = {
-			{ "userName", "userName" },
-			{ "AU01",{
-				{ "upperThreshold", 5.5 },
-				{ "bottomThreshold", -5.5 },
-				{ "ts" , 600 }
-			} },
-			{ "AU06",{
-				{ "upperThreshold", 3.5 },
-				{ "bottomThreshold", -3.5 },
-				{ "ts" , 600 }
-			} },
-			{ "AU14",{
-				{ "upperThreshold", 3.5 },
-				{ "bottomThreshold", -3.5 },
-				{ "ts" , 700 }
-			} },
-			{ "AU45",{
-				{ "upperThreshold", 2.5 },
-				{ "bottomThreshold", -2.5 },
-				{ "ts" , 600 }
-			} }
-		};*/
-		//setAUsActivationParams(calibParams);
 	}
+
+	// UDP communication
+	if ( (dev1Socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
+        perror("dev1 socket ");
+		exit(1);
+    }
+	if ( (dev2Socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
+        perror("dev2 socket");
+		exit(1);
+    }
+
+	// Allows broadcast to be sent
+	if(broadcastEnable) {
+		if (setsockopt(dev1Socket, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, sizeof(broadcastEnable)) == -1) {
+			perror("setsockopt (SO_BROADCAST) for dev 1");
+			exit(1);
+		}
+		if (setsockopt(dev2Socket, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, sizeof(broadcastEnable)) == -1) {
+			perror("setsockopt (SO_BROADCAST) for dev 2");
+			exit(1);
+		}
+	}
+
+    memset((char *) &dev1Address, 0, sizeof(dev1Address));
+    dev1Address.sin_family = AF_INET;
+    dev1Address.sin_port = htons(dev1PORT);
+
+	memset((char *) &dev2Address, 0, sizeof(dev2Address));
+    dev2Address.sin_family = AF_INET;
+    dev2Address.sin_port = htons(dev2PORT);
+     
+    if (inet_aton(dev1IP , &dev1Address.sin_addr) == 0) {
+        fprintf(stderr, "inet_aton() failed on dev 1\n");
+        exit(1);
+    }
+
+	if (inet_aton(dev2IP , &dev2Address.sin_addr) == 0) {
+        fprintf(stderr, "inet_aton() failed on dev 2\n");
+        exit(1);
+    }
 
 	//===============================================
 		
@@ -763,6 +797,12 @@ int main (int argc, char **argv)
 			// Update corrected YPR angles if zero reference has been set
 			if (zeroRefYPRSet) {	
 				updateCorrYPR();
+				// Send angles via UDP
+				std::sprintf(msgToDev1, "%d %d %d\n", int(TO_DEG(cYaw*100)), int(TO_DEG(cPitch*100)), int(TO_DEG(cRoll*100)));
+				if (sendto(dev1Socket, msgToDev1, strlen(msgToDev1) , 0 , (struct sockaddr *) &dev1Address, dev1SocketLen) == -1) {
+					perror("sendto() dev 1");
+					exit(1);
+				}
 			}
 			// Get ordered AUs values (presence and intensity)
 			ausClass = getRawAUs(face_analyser, 0); 
@@ -859,6 +899,8 @@ int main (int argc, char **argv)
 				// quit the application
 				else if(character_press=='q')
 				{
+					close(dev1Socket);
+					close(dev2Socket);
 					return(0);
 				}
 			}
@@ -1286,6 +1328,12 @@ void detectFacialExp() {
 		ausActivations[0].upperFlag = false;
 		ausActivations[0].bottomFlag = false;
 		ausActivations[0].activated = false;
+		// Send facial expression via UDP
+		std::sprintf(msgToDev2, "EYEBROWS_UP\n");
+        if (sendto(dev2Socket, msgToDev2, strlen(msgToDev2) , 0 , (struct sockaddr *) &dev2Address, dev2SocketLen) == -1) {
+            perror("sendto() dev 2");
+			exit(1);
+        }
 	}
 	// BLINK (AU45)
 	else if (ausActivations[17].activated) {
@@ -1293,6 +1341,12 @@ void detectFacialExp() {
 		ausActivations[17].upperFlag = false;
 		ausActivations[17].bottomFlag = false;
 		ausActivations[17].activated = false;
+		// Send facial expression via UDP
+		std::sprintf(msgToDev2, "BLINK\n");
+        if (sendto(dev2Socket, msgToDev2, strlen(msgToDev2) , 0 , (struct sockaddr *) &dev2Address, dev2SocketLen) == -1) {
+            perror("sendto() dev 2");
+			exit(1);
+        }
 	}
 	// SMILE (AU06 and AU14)
 	else if (ausActivations[4].activated && ausActivations[9].activated) {
@@ -1303,6 +1357,11 @@ void detectFacialExp() {
 		ausActivations[9].upperFlag = false;
 		ausActivations[9].bottomFlag = false;
 		ausActivations[9].activated = false;
+		std::sprintf(msgToDev2, "SMILE\n");
+        if (sendto(dev2Socket, msgToDev2, strlen(msgToDev2) , 0 , (struct sockaddr *) &dev2Address, dev2SocketLen) == -1) {
+            perror("sendto() dev 2");
+			exit(1);
+        }
 	}
 }
 
@@ -2050,6 +2109,20 @@ void get_output_feature_params(vector<string> &output_similarity_aligned, vector
 			load_user_params = true;
 			calibFileName = arguments[i + 1];
 			valid[i] = false;
+		}
+		else if (arguments[i].compare("-dev1") == 0) {
+			std::string ip = arguments[i + 1];
+			std::strcpy(dev1IP, ip.c_str());
+			std::string port = arguments[i + 2];
+			dev1PORT = std::stoi(port);
+			INFO_STREAM("YPR angles => dev1 IP " << dev1IP << " PORT " << dev1PORT);
+		}
+		else if (arguments[i].compare("-dev2") == 0) {
+			std::string ip = arguments[i + 1];
+			std::strcpy(dev2IP, ip.c_str());
+			std::string port = arguments[i + 2];
+			dev2PORT = std::stoi(port);
+			INFO_STREAM("Facial expressions => dev2: IP " << dev2IP << " PORT " << dev2PORT);
 		}
 		//===============================================
 	}
