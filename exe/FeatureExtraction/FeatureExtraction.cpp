@@ -881,7 +881,6 @@ int main (int argc, char **argv)
 				// Set zero ref for YPR angles (Guilherme)
 				else if (character_press == 's') {
 					setZeroRefYPR();
-					INFO_STREAM("YPR zero reference has been set...");
 				}
 				// Start calibration process (Guilherme)
 				else if (character_press == 'c') {
@@ -1048,6 +1047,7 @@ void setZeroRefYPR() {
 	shiftPitch = pitch;
 	shiftRoll = roll;
 	zeroRefYPRSet = true;
+	INFO_STREAM("YPR zero reference has been set...");
 }
 
 // Update corrected YPR
@@ -1329,7 +1329,7 @@ void detectFacialExp() {
 		ausActivations[0].bottomFlag = false;
 		ausActivations[0].activated = false;
 		// Send facial expression via UDP
-		std::sprintf(msgToDev2, "EYEBROWS_UP\n");
+		std::sprintf(msgToDev2, "EYEBROWS_UP %d %d %d\n", int(TO_DEG(cYaw*100)), int(TO_DEG(cPitch*100)), int(TO_DEG(cRoll*100)));
         if (sendto(dev2Socket, msgToDev2, strlen(msgToDev2) , 0 , (struct sockaddr *) &dev2Address, dev2SocketLen) == -1) {
             perror("sendto() dev 2");
 			exit(1);
@@ -1342,7 +1342,7 @@ void detectFacialExp() {
 		ausActivations[17].bottomFlag = false;
 		ausActivations[17].activated = false;
 		// Send facial expression via UDP
-		std::sprintf(msgToDev2, "BLINK\n");
+		std::sprintf(msgToDev2, "BLINK %d %d %d\n", int(TO_DEG(cYaw*100)), int(TO_DEG(cPitch*100)), int(TO_DEG(cRoll*100)));
         if (sendto(dev2Socket, msgToDev2, strlen(msgToDev2) , 0 , (struct sockaddr *) &dev2Address, dev2SocketLen) == -1) {
             perror("sendto() dev 2");
 			exit(1);
@@ -1357,7 +1357,9 @@ void detectFacialExp() {
 		ausActivations[9].upperFlag = false;
 		ausActivations[9].bottomFlag = false;
 		ausActivations[9].activated = false;
-		std::sprintf(msgToDev2, "SMILE\n");
+		setZeroRefYPR();
+		// Send facial expression via UDP
+		std::sprintf(msgToDev2, "SMILE %d %d %d\n", int(TO_DEG(cYaw*100)), int(TO_DEG(cPitch*100)), int(TO_DEG(cRoll*100)));
         if (sendto(dev2Socket, msgToDev2, strlen(msgToDev2) , 0 , (struct sockaddr *) &dev2Address, dev2SocketLen) == -1) {
             perror("sendto() dev 2");
 			exit(1);
