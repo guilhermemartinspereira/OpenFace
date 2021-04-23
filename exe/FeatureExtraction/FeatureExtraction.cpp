@@ -1424,11 +1424,11 @@ void outputAUsData(std::ofstream* outFile) {
 	long tms = getTimeDiff(&tInitial);
 	char tms_arr[10];
 	std::sprintf(tms_arr, "%ld", tms);
-	// Create line string with AUs MA values, derivatives and timestamp
+	// Create line string with AUs raw values, MA values, derivatives and timestamp
 	std::string ausData;	
 	for (int i = 0; i < SIZE_AUS; i++) {
 		char aus_arr[255];
-		std::sprintf(aus_arr, "%.2f %.2f ", ausRegMA[i], ausDeriv[i]);	// Write MA value and its derivative for each AU
+		std::sprintf(aus_arr, "%.2f %.2f %.2f ",ausRegRaw[i] ,ausRegMA[i], ausDeriv[i]);	// Write raw value, MA value and its derivative for each AU
 		ausData += aus_arr;
 	}
 	ausData += tms_arr;
